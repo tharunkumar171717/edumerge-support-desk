@@ -4,7 +4,7 @@ import { TEAM_LABELS } from "@/lib/domain/config";
 import type { Role, User } from "@/lib/domain/types";
 import { listUsersForLogin } from "@/lib/services/queries";
 
-export const metadata = { title: "Sign in · Student Support Desk" };
+export const metadata = { title: "Sign in" };
 
 const GROUPS: { role: Role; title: string; blurb: string; Icon: typeof Users }[] = [
   { role: "STUDENT", title: "Students", blurb: "Raise requests, reply when staff need information, and confirm or reopen resolutions.", Icon: GraduationCap },

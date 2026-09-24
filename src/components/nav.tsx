@@ -30,7 +30,7 @@ export function Nav({ user, unread }: { user: User; unread: number }) {
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5">
         <Link href="/" className="flex shrink-0 items-center gap-2 font-semibold text-slate-900">
           <LifeBuoy className="h-5 w-5 text-indigo-600" aria-hidden />
-          <span className="hidden sm:inline">Support Desk</span>
+          <span className="hidden sm:inline">Student Support Desk</span>
         </Link>
         <NavLinks links={LINKS[user.role]} />
         <div className="ml-auto flex shrink-0 items-center gap-2">

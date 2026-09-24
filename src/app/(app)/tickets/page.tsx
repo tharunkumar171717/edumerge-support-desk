@@ -9,7 +9,7 @@ import { requireUser } from "@/lib/session";
 import { FilterForm } from "./filter-form";
 import { applyFilters, listAllStaff, listVisibleTickets, type TicketFilters } from "@/lib/services/queries";
 
-export const metadata = { title: "Tickets · Student Support Desk" };
+export const metadata = { title: "Tickets" };
 
 const SLA_STATES: SlaStateName[] = ["breached", "at_risk", "on_track", "paused", "met", "missed"];
 const SORTS = { newest: "Newest", oldest: "Oldest first", sla: "SLA urgency", priority: "Priority", updated: "Recently updated" } as const;

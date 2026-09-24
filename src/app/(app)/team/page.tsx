@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/session";
 import { dashboardReport } from "@/lib/services/reports";
 import { StaffToggle } from "./staff-toggle";
 
-export const metadata = { title: "Team · Student Support Desk" };
+export const metadata = { title: "Team" };
 
 export default async function TeamPage() {
   const user = await requireUser();

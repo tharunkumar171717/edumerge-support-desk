@@ -6,7 +6,8 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Student Support Desk",
+  // One template so every tab reads "<page> · Student Support Desk".
+  title: { default: "Student Support Desk", template: "%s · Student Support Desk" },
   description: "Ticketing for student requests: routing, SLAs, escalation and management visibility.",
 };
 

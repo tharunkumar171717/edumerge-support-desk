@@ -6,7 +6,7 @@ import { CATEGORIES } from "@/lib/domain/types";
 import { requireUser } from "@/lib/session";
 import { NewTicketForm } from "./form";
 
-export const metadata = { title: "Raise a request · Student Support Desk" };
+export const metadata = { title: "Raise a request" };
 
 export default async function NewTicketPage() {
   const user = await requireUser();

@@ -1,4 +1,5 @@
 import { Hand, Plus } from "lucide-react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { quickPickUp } from "@/app/actions";
 import { KpiTiles } from "@/components/kpi-tiles";
@@ -7,12 +8,16 @@ import { now as clockNow } from "@/lib/clock";
 import { isOpen, teamForCategory, TEAM_LABELS } from "@/lib/domain/config";
 import { worstSlaState } from "@/lib/domain/sla";
 import type { User } from "@/lib/domain/types";
-import { requireUser } from "@/lib/session";
+import { currentUser, requireUser } from "@/lib/session";
 import { listVisibleTickets, slaUrgency, type TicketRow } from "@/lib/services/queries";
 import { dashboardReport } from "@/lib/services/reports";
 import { maybeRunSweep } from "@/lib/services/sweep";
 
-export const metadata = { title: "My work · Student Support Desk" };
+export async function generateMetadata(): Promise<Metadata> {
+  // Matches the nav label each role sees.
+  const user = await currentUser();
+  return { title: user?.role === "STUDENT" ? "My requests" : "My work" };
+}
 
 function Section({ title, count, hint, children }: { title: string; count: number; hint?: string; children: React.ReactNode }) {
   return (

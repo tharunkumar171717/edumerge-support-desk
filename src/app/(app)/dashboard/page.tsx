@@ -8,7 +8,7 @@ import { requireUser } from "@/lib/session";
 import { dashboardReport } from "@/lib/services/reports";
 import { maybeRunSweep } from "@/lib/services/sweep";
 
-export const metadata = { title: "Dashboard · Student Support Desk" };
+export const metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const user = await requireUser();

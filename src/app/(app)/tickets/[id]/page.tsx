@@ -1,6 +1,8 @@
 import { ArrowLeft, Lock } from "lucide-react";
 import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { FeedbackProvider } from "@/components/action-form";
 import { ActionPanel, Composer } from "@/components/action-panel";
 import { CategoryTag, EscalationFlag, PriorityBadge, StatusBadge } from "@/components/badges";
@@ -15,18 +17,31 @@ import { fmtAge, fmtDate, fmtDateTime } from "@/lib/format";
 import { requireUser } from "@/lib/session";
 import { getTicketDetail, listActiveStaff } from "@/lib/services/queries";
 
-export default async function TicketPage({ params, searchParams }: PageProps<"/tickets/[id]">) {
+// Shared by generateMetadata and the page so the ticket is loaded once per request.
+const loadTicket = cache(async (rawId: string) => {
   const user = await requireUser();
-  const id = Number((await params).id);
-  if (!Number.isInteger(id) || id <= 0) notFound();
-  let detail;
+  const id = Number(rawId);
+  if (!Number.isInteger(id) || id <= 0) return null;
   try {
-    detail = await getTicketDetail(user, id);
+    return { user, detail: await getTicketDetail(user, id) };
   } catch (e) {
     // Forbidden and missing look the same, so ticket ids can't be probed.
-    if (e instanceof DomainError) notFound();
+    if (e instanceof DomainError) return null;
     throw e;
   }
+});
+
+export async function generateMetadata({ params }: PageProps<"/tickets/[id]">): Promise<Metadata> {
+  const loaded = await loadTicket((await params).id);
+  if (!loaded) return { title: "Ticket not found" };
+  const t = loaded.detail.ticket;
+  return { title: `${ticketCode(t.id)} · ${t.subject}` };
+}
+
+export default async function TicketPage({ params, searchParams }: PageProps<"/tickets/[id]">) {
+  const loaded = await loadTicket((await params).id);
+  if (!loaded) notFound();
+  const { user, detail } = loaded;
   const { ticket: t, comments, events } = detail;
   const now = clockNow();
   const actions = [...availableActions(user, t)];
