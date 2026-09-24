@@ -1,6 +1,6 @@
 # Mandatory AI Usage Report
 
-Uses the exact template from page 6 of the assignment brief. Every "wrong output" below is a real entry from the running log in [ai-log.md](ai-log.md), which has all 14 entries with full detail.
+Uses the exact template from page 6 of the assignment brief. Every "wrong output" below is a real entry from the running log in [ai-log.md](ai-log.md), which has all 16 entries with full detail.
 
 ---
 

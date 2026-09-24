@@ -10,6 +10,10 @@ function createClient(): Sql {
     ssl: "require",
     max: 1,
     prepare: false, // the Supabase pooler doesn't keep prepared statements across sessions
+    // Recycle idle connections so warm serverless instances don't pin pooler slots, and fail fast on connect.
+    idle_timeout: 20,
+    max_lifetime: 60 * 10,
+    connect_timeout: 15,
     transform: postgres.camel,
     // Keep calendar dates as plain YYYY-MM-DD strings instead of UTC-midnight Date objects.
     types: { date: { to: 1082, from: [1082], serialize: (x: string) => x, parse: (x: string) => x } },
