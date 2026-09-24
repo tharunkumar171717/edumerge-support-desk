@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { FeedbackProvider } from "@/components/action-form";
 import { ActionPanel, Composer } from "@/components/action-panel";
 import { CategoryTag, EscalationFlag, PriorityBadge, StatusBadge } from "@/components/badges";
+import { MarkSeen } from "@/components/mark-seen";
 import { SlaPanel } from "@/components/sla-panel";
 import { Timeline } from "@/components/timeline";
 import { now as clockNow } from "@/lib/clock";
@@ -36,6 +37,7 @@ export default async function TicketPage({ params, searchParams }: PageProps<"/t
 
   return (
     <div className="space-y-4">
+      <MarkSeen ticketId={t.id} />
       <Link href={isStudent ? "/" : "/tickets"} className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900">
         <ArrowLeft className="h-4 w-4" /> Back
       </Link>

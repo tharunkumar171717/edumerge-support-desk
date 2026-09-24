@@ -156,8 +156,11 @@ export async function staffStatusAction(_prev: FormState, formData: FormData): P
   }
 }
 
-export async function markAllReadAction() {
+/** Called when the user actually sees notifications (the list page, or a ticket they're about). */
+export async function markSeenAction(ticketId?: number): Promise<void> {
   const user = await requireUser();
-  await svc.markNotificationsRead(user.id);
-  revalidatePath("/", "layout");
+  const id = ticketId === undefined ? undefined : Number(ticketId);
+  if (id !== undefined && (!Number.isInteger(id) || id <= 0)) return;
+  // Only revalidate when something changed, so viewing an already-read ticket costs nothing.
+  if ((await svc.markNotificationsRead(user.id, id)) > 0) revalidatePath("/", "layout");
 }

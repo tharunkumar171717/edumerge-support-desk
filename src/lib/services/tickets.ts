@@ -76,12 +76,12 @@ export const closeTicket = (actorId: number, id: number, version: number) =>
 export const reopenTicket = (actorId: number, id: number, version: number, reason: string) =>
   run(actorId, id, (t, c) => wf.reopen(t, version, reason, c));
 
-export async function markNotificationsRead(userId: number, ids?: number[]) {
-  if (ids?.length) {
-    await sql`UPDATE support_desk.notifications SET is_read = true WHERE user_id = ${userId} AND id IN ${sql(ids)}`;
-  } else {
-    await sql`UPDATE support_desk.notifications SET is_read = true WHERE user_id = ${userId} AND NOT is_read`;
-  }
+/** Marks the user's unread notifications read: all of them, or only those about one ticket. Returns how many changed. */
+export async function markNotificationsRead(userId: number, ticketId?: number): Promise<number> {
+  const res = ticketId
+    ? await sql`UPDATE support_desk.notifications SET is_read = true WHERE user_id = ${userId} AND ticket_id = ${ticketId} AND NOT is_read`
+    : await sql`UPDATE support_desk.notifications SET is_read = true WHERE user_id = ${userId} AND NOT is_read`;
+  return res.count;
 }
 
 export function assertValidId(id: unknown): number {
