@@ -1,0 +1,19 @@
+# Every-15-minute SLA sweep for Vercel Hobby, which only allows daily Vercel Crons.
+# To enable: copy to .github/workflows/sla-sweep.yml, then
+#   gh secret set CRON_SECRET        (same value as on Vercel)
+#   gh variable set APP_URL --body https://<your-app>.vercel.app
+# Pushing workflow files needs a token with the `workflow` scope: gh auth refresh -s workflow
+name: SLA sweep
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run idempotent SLA sweep
+        run: |
+          curl -fsS --max-time 60 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ vars.APP_URL }}/api/cron/sla-sweep"

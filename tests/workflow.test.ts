@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { pickAssignee } from "@/lib/domain/assign";
 import { sweepTicket } from "@/lib/domain/sweep";
 import {
+  addComment,
   assign,
   cancel,
   confirmClose,
@@ -125,6 +126,23 @@ describe("reopen", () => {
     expect(() => reopen(resolved, 1, "not mine", ctx(otherStudent))).toThrow(/Only the student/);
     expect(() => reopen(resolved, 1, "nope", ctx(manager))).toThrow(/Only the student/);
     expect(() => reopen(resolved, 1, "   ", ctx(student))).toThrow(/why/);
+  });
+});
+
+describe("waiting on student", () => {
+  const waiting = makeTicket({ firstResponseAt: hours(1), status: "WAITING_ON_STUDENT", pausedAt: hours(2) });
+
+  it("a reply with no owner goes back to the queue and alerts managers", () => {
+    const out = addComment({ ...waiting, assigneeId: null }, 1, "Here is the UTR", false, ctx(student, hours(5)));
+    expect(out.ticket.status).toBe("NEW");
+    expect(out.ticket.pausedAt).toBeNull();
+    expect(out.notifications.map((n) => n.userId)).toEqual([manager.id]);
+  });
+
+  it("resolving while waiting counts the paused time before stopping the clock", () => {
+    const out = resolve(waiting, 1, "Fixed after checking the bank statement", ctx(accounts1, hours(12)));
+    expect(out.ticket).toMatchObject({ status: "RESOLVED", pausedAt: null, pausedSeconds: 10 * 3600 });
+    expect(out.ticket.resolutionDueAt).toEqual(hours(72 + 10));
   });
 });
 
