@@ -1,5 +1,6 @@
+import { Op } from "sequelize";
 import { setClock } from "../src/lib/clock";
-import { sql } from "../src/lib/db";
+import { models } from "../src/lib/db";
 import { campusDate } from "../src/lib/domain/priority";
 import { runSlaSweep } from "../src/lib/services/sweep";
 import { deactivateStaff, reactivateStaff } from "../src/lib/services/staff";
@@ -19,15 +20,13 @@ export async function seed(): Promise<void> {
   const realNow = new Date();
   const at = (hoursAgo: number) => new Date(realNow.getTime() - hoursAgo * HOUR);
 
-  await sql`TRUNCATE support_desk.notifications, support_desk.ticket_events, support_desk.comments,
-                     support_desk.tickets, support_desk.users RESTART IDENTITY CASCADE`;
+  const { UserModel, TicketModel, TicketEventModel, NotificationModel } = models();
+  // CASCADE also empties tickets, comments, events and notifications (they reference users).
+  await UserModel.truncate({ cascade: true, restartIdentity: true });
   const seedCreated = at(24 * 30);
   const ids = new Map<string, number>();
   for (const u of USERS) {
-    const [row] = await sql<{ id: number }[]>`
-      INSERT INTO support_desk.users (name, email, role, team, roll_no, created_at)
-      VALUES (${u.name}, ${u.email}, ${u.role}, ${u.team ?? null}, ${u.rollNo ?? null}, ${seedCreated})
-      RETURNING id`;
+    const row = await UserModel.create({ name: u.name, email: u.email, role: u.role, team: u.team ?? null, rollNo: u.rollNo ?? null, createdAt: seedCreated });
     ids.set(u.name, row.id);
   }
   const id = (name: string) => ids.get(name)!;
@@ -61,8 +60,7 @@ export async function seed(): Promise<void> {
 
   async function runStep(sc: Scenario, step: Step) {
     const tid = ticketIds.get(sc)!;
-    const [t] = await sql<{ version: number; assigneeId: number | null; category: string }[]>`
-      SELECT version, assignee_id, category FROM support_desk.tickets WHERE id = ${tid}`;
+    const t = (await TicketModel.findByPk(tid, { attributes: ["version", "assigneeId", "category"] }))!;
     const owner = t.assigneeId ?? managerId;
     const student = id(sc.student);
     switch (step.do) {
@@ -95,9 +93,7 @@ export async function seed(): Promise<void> {
   await runSlaSweep(realNow);
 
   // Older notifications would realistically have been seen already.
-  await sql`UPDATE support_desk.notifications SET is_read = true WHERE created_at < ${at(24)}`;
-  const [c] = await sql<{ tickets: number; events: number }[]>`
-    SELECT (SELECT count(*)::int FROM support_desk.tickets) AS tickets,
-           (SELECT count(*)::int FROM support_desk.ticket_events) AS events`;
+  await NotificationModel.update({ isRead: true }, { where: { createdAt: { [Op.lt]: at(24) } } });
+  const c = { tickets: await TicketModel.count(), events: await TicketEventModel.count() };
   console.log(`Seeded ${USERS.length} users, ${c.tickets} tickets, ${c.events} events.`);
 }

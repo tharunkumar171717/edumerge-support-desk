@@ -1,12 +1,14 @@
-import { sql } from "@/lib/db";
+import { Op, type Includeable, type WhereOptions } from "sequelize";
+import { models, type TicketModel } from "@/lib/db";
+import type { Catalog } from "@/lib/domain/catalog";
 import { OPEN_STATUSES } from "@/lib/domain/config";
 import { notFound } from "@/lib/domain/errors";
 import { requireView } from "@/lib/domain/permissions";
 import { resolutionClock, responseClock, worstSlaState } from "@/lib/domain/sla";
-import { PRIORITIES, STATUSES, type Category, type Priority, type SlaStateName, type Status, type Ticket, type User } from "@/lib/domain/types";
+import { PRIORITIES, STATUSES, type Category, type Priority, type Role, type SlaStateName, type Status, type Ticket, type User } from "@/lib/domain/types";
 import { getCatalog } from "./catalog";
 
-/** A ticket plus the names and master-data labels the UI shows, joined in SQL. */
+/** A ticket plus the names and master-data labels the UI shows, loaded with joins (`include`). */
 export type TicketRow = Ticket & {
   studentName: string;
   studentRollNo: string | null;
@@ -21,33 +23,55 @@ export type TicketRow = Ticket & {
 // Events that reveal internal handling are hidden from students, like internal notes.
 const STAFF_ONLY_EVENTS = ["internal_note", "escalated", "queued"];
 
-// A function, not a constant: building a fragment at import time would open the DB client during `next build`.
-const ticketRow = () => sql`
-  SELECT t.*, s.name AS student_name, s.roll_no AS student_roll_no, a.name AS assignee_name,
-         c.label AS category_label, c.team_code AS team, tm.label AS team_label,
-         p.label AS priority_label, p.rank AS priority_rank
-    FROM support_desk.tickets t
-    JOIN support_desk.users s ON s.id = t.student_id
-    LEFT JOIN support_desk.users a ON a.id = t.assignee_id
-    JOIN support_desk.categories c ON c.code = t.category
-    JOIN support_desk.teams tm ON tm.code = c.team_code
-    JOIN support_desk.priorities p ON p.code = t.priority`;
+/** Joins for a TicketRow: student, assignee, category → team, priority. */
+function ticketIncludes(): Includeable[] {
+  const { UserModel, CategoryModel, TeamModel, PriorityModel } = models();
+  return [
+    { model: UserModel, as: "student", attributes: ["name", "rollNo"] },
+    { model: UserModel, as: "assignee", attributes: ["name"] },
+    { model: CategoryModel, as: "categoryRef", attributes: ["label", "teamCode"], include: [{ model: TeamModel, as: "teamRef", attributes: ["label"] }] },
+    { model: PriorityModel, as: "priorityRef", attributes: ["label", "rank"] },
+  ];
+}
 
-/** Row-level visibility, applied in SQL so a student's query can never return someone else's ticket. */
-function visibleTo(user: User) {
-  if (user.role === "MANAGER") return sql`true`;
-  if (user.role === "STUDENT") return sql`t.student_id = ${user.id}`;
-  return user.team
-    ? sql`(t.assignee_id = ${user.id} OR c.team_code = ${user.team})`
-    : sql`t.assignee_id = ${user.id}`;
+/** Flattens a ticket loaded with ticketIncludes() into the row shape the UI and API use. */
+function toRow(m: TicketModel): TicketRow {
+  const { student, assignee, categoryRef, priorityRef, ...t } = m.get({ plain: true }) as Ticket & {
+    student: { name: string; rollNo: string | null };
+    assignee: { name: string } | null;
+    categoryRef: { label: string; teamCode: string; teamRef: { label: string } };
+    priorityRef: { label: string; rank: number };
+  };
+  return {
+    ...t,
+    studentName: student.name,
+    studentRollNo: student.rollNo,
+    assigneeName: assignee?.name ?? null,
+    categoryLabel: categoryRef.label,
+    team: categoryRef.teamCode,
+    teamLabel: categoryRef.teamRef.label,
+    priorityLabel: priorityRef.label,
+    priorityRank: priorityRef.rank,
+  };
+}
+
+/** Row-level visibility, applied in the query so a student's list can never include someone else's ticket. */
+function visibleTo(user: User, catalog: Catalog): WhereOptions {
+  if (user.role === "MANAGER") return {};
+  if (user.role === "STUDENT") return { studentId: user.id };
+  const teamCategories = catalog.categories.filter((c) => c.team === user.team).map((c) => c.code);
+  return { [Op.or]: [{ assigneeId: user.id }, { category: teamCategories }] };
 }
 
 export async function listVisibleTickets(user: User): Promise<TicketRow[]> {
-  return sql<TicketRow[]>`
-    ${ticketRow()}
-     WHERE ${visibleTo(user)}
-     ORDER BY t.created_at DESC
-     LIMIT 1000`;
+  const { TicketModel } = models();
+  const rows = await TicketModel.findAll({
+    where: visibleTo(user, await getCatalog()),
+    include: ticketIncludes(),
+    order: [["createdAt", "DESC"]],
+    limit: 1000,
+  });
+  return rows.map(toRow);
 }
 
 export interface TicketFilters {
@@ -123,59 +147,86 @@ export interface CommentView { id: number; authorId: number; authorName: string;
 export interface EventView { id: number; actorName: string | null; kind: string; fromValue: string | null; toValue: string | null; note: string | null; createdAt: Date }
 
 export async function getTicketDetail(user: User, id: number) {
+  const { TicketModel, CommentModel, TicketEventModel, UserModel } = models();
   const student = user.role === "STUDENT";
-  // Everything is fetched at once; comments and events are only returned after the view check.
-  const [[ticket], catalog, comments, events] = await Promise.all([
-    sql<TicketRow[]>`
-    ${ticketRow()}
-     WHERE t.id = ${id}`,
-    getCatalog(),
-    sql<CommentView[]>`
-    SELECT c.id, c.author_id, u.name AS author_name, u.role AS author_role, c.body, c.is_internal, c.created_at
-      FROM support_desk.comments c JOIN support_desk.users u ON u.id = c.author_id
-     WHERE c.ticket_id = ${id} ${student ? sql`AND NOT c.is_internal` : sql``}
-     ORDER BY c.created_at, c.id`,
-    sql<EventView[]>`
-    SELECT e.id, u.name AS actor_name, e.kind, e.from_value, e.to_value, e.note, e.created_at
-      FROM support_desk.ticket_events e LEFT JOIN support_desk.users u ON u.id = e.actor_id
-     WHERE e.ticket_id = ${id} ${student ? sql`AND e.kind NOT IN ${sql(STAFF_ONLY_EVENTS)}` : sql``}
-     ORDER BY e.created_at, e.id`,
-  ]);
-  if (!ticket) throw notFound();
+  const [row, catalog] = await Promise.all([TicketModel.findByPk(id, { include: ticketIncludes() }), getCatalog()]);
+  if (!row) throw notFound();
+  const ticket = toRow(row);
   requireView(user, ticket, catalog);
-  return { ticket, comments, events };
+  const [comments, events] = await Promise.all([
+    CommentModel.findAll({
+      where: { ticketId: id, ...(student ? { isInternal: false } : {}) },
+      include: [{ model: UserModel, as: "author", attributes: ["name", "role"] }],
+      order: [["createdAt", "ASC"], ["id", "ASC"]],
+    }),
+    TicketEventModel.findAll({
+      where: { ticketId: id, ...(student ? { kind: { [Op.notIn]: STAFF_ONLY_EVENTS } } : {}) },
+      include: [{ model: UserModel, as: "actor", attributes: ["name"] }],
+      order: [["createdAt", "ASC"], ["id", "ASC"]],
+    }),
+  ]);
+  return {
+    ticket,
+    comments: comments.map((c): CommentView => ({
+      id: c.id, authorId: c.authorId, authorName: c.author!.name, authorRole: c.author!.role,
+      body: c.body, isInternal: c.isInternal, createdAt: c.createdAt,
+    })),
+    events: events.map((e): EventView => ({
+      id: e.id, actorName: e.actor?.name ?? null, kind: e.kind, fromValue: e.fromValue,
+      toValue: e.toValue, note: e.note, createdAt: e.createdAt,
+    })),
+  };
 }
 
 export async function listActiveStaff() {
-  return sql<{ id: number; name: string; team: string; teamLabel: string }[]>`
-    SELECT u.id, u.name, u.team, tm.label AS team_label
-      FROM support_desk.users u JOIN support_desk.teams tm ON tm.code = u.team
-     WHERE u.role = 'STAFF' AND u.is_active
-     ORDER BY tm.sort_order, u.name`;
+  const { UserModel, TeamModel } = models();
+  const rows = await UserModel.findAll({
+    where: { role: "STAFF", isActive: true },
+    attributes: ["id", "name", "team"],
+    include: [{ model: TeamModel, as: "teamRef", attributes: ["label", "sortOrder"] }],
+    order: [[{ model: TeamModel, as: "teamRef" }, "sortOrder", "ASC"], ["name", "ASC"]],
+  });
+  return rows.map((u) => ({ id: u.id, name: u.name, team: u.team ?? "", teamLabel: u.teamRef?.label ?? u.team ?? "" }));
 }
 
 export async function listAllStaff() {
-  return sql<{ id: number; name: string }[]>`
-    SELECT id, name FROM support_desk.users WHERE role = 'STAFF' ORDER BY name`;
+  const { UserModel } = models();
+  const rows = await UserModel.findAll({ where: { role: "STAFF" }, attributes: ["id", "name"], order: [["name", "ASC"]] });
+  return rows.map((u) => ({ id: u.id, name: u.name }));
 }
 
-export async function listUsersForLogin() {
-  return sql<(User & { teamLabel: string | null })[]>`
-    SELECT u.id, u.name, u.email, u.role, u.team, u.roll_no, u.is_active, tm.label AS team_label
-      FROM support_desk.users u LEFT JOIN support_desk.teams tm ON tm.code = u.team
-     ORDER BY CASE u.role WHEN 'STUDENT' THEN 0 WHEN 'STAFF' THEN 1 ELSE 2 END, tm.sort_order NULLS FIRST, u.id`;
+const ROLE_ORDER: Record<Role, number> = { STUDENT: 0, STAFF: 1, MANAGER: 2 };
+
+export async function listUsersForLogin(): Promise<(User & { teamLabel: string | null })[]> {
+  const { UserModel, TeamModel } = models();
+  const rows = await UserModel.findAll({
+    attributes: ["id", "name", "email", "role", "team", "rollNo", "isActive"],
+    include: [{ model: TeamModel, as: "teamRef", attributes: ["label", "sortOrder"] }],
+  });
+  return rows
+    .map((u) => ({ u, teamOrder: u.teamRef?.sortOrder ?? -1 }))
+    .sort((a, b) => ROLE_ORDER[a.u.role] - ROLE_ORDER[b.u.role] || a.teamOrder - b.teamOrder || a.u.id - b.u.id)
+    .map(({ u }) => ({
+      id: u.id, name: u.name, email: u.email, role: u.role, team: u.team,
+      rollNo: u.rollNo, isActive: u.isActive, teamLabel: u.teamRef?.label ?? null,
+    }));
 }
 
 export async function unreadCount(userId: number): Promise<number> {
-  const [r] = await sql<{ n: number }[]>`
-    SELECT count(*)::int AS n FROM support_desk.notifications WHERE user_id = ${userId} AND NOT is_read`;
-  return r.n;
+  const { NotificationModel } = models();
+  return NotificationModel.count({ where: { userId, isRead: false } });
 }
 
 export async function listNotifications(userId: number) {
-  return sql<{ id: number; ticketId: number | null; message: string; isRead: boolean; createdAt: Date; subject: string | null }[]>`
-    SELECT n.id, n.ticket_id, n.message, n.is_read, n.created_at, t.subject
-      FROM support_desk.notifications n LEFT JOIN support_desk.tickets t ON t.id = n.ticket_id
-     WHERE n.user_id = ${userId}
-     ORDER BY n.created_at DESC, n.id DESC LIMIT 100`;
+  const { NotificationModel, TicketModel } = models();
+  const rows = await NotificationModel.findAll({
+    where: { userId },
+    include: [{ model: TicketModel, as: "ticket", attributes: ["subject"] }],
+    order: [["createdAt", "DESC"], ["id", "DESC"]],
+    limit: 100,
+  });
+  return rows.map((n) => ({
+    id: n.id, ticketId: n.ticketId, message: n.message, isRead: n.isRead,
+    createdAt: n.createdAt, subject: n.ticket?.subject ?? null,
+  }));
 }

@@ -1,4 +1,5 @@
-import { sql } from "@/lib/db";
+import { Op } from "sequelize";
+import { models } from "@/lib/db";
 import { isOpen, STATUS_LABELS } from "@/lib/domain/config";
 import { campusDate } from "@/lib/domain/priority";
 import { isBreached, resolutionClock, responseClock } from "@/lib/domain/sla";
@@ -15,15 +16,17 @@ export interface StaffRow { id: number; name: string; team: string; teamLabel: s
 
 /** Management view computed from live ticket state, so it always agrees with what staff see. */
 export async function dashboardReport(now: Date) {
-  const [catalog, tickets, staff, resolvedEvents] = await Promise.all([
+  const { TicketModel, UserModel, TicketEventModel } = models();
+  const [catalog, ticketRows, staff, resolvedEvents] = await Promise.all([
     getCatalog(),
-    sql<Ticket[]>`SELECT * FROM support_desk.tickets`,
-    sql<{ id: number; name: string; team: string; isActive: boolean }[]>`
-      SELECT id, name, team, is_active FROM support_desk.users WHERE role = 'STAFF' ORDER BY team, name`,
-    sql<{ createdAt: Date }[]>`
-      SELECT created_at FROM support_desk.ticket_events
-       WHERE kind = 'status_changed' AND to_value = 'Resolved' AND created_at > ${new Date(now.getTime() - 15 * DAY)}`,
+    TicketModel.findAll(),
+    UserModel.findAll({ where: { role: "STAFF" }, attributes: ["id", "name", "team", "isActive"], order: [["team", "ASC"], ["name", "ASC"]] }),
+    TicketEventModel.findAll({
+      where: { kind: "status_changed", toValue: "Resolved", createdAt: { [Op.gt]: new Date(now.getTime() - 15 * DAY) } },
+      attributes: ["createdAt"],
+    }),
   ]);
+  const tickets = ticketRows.map((t) => t.get({ plain: true }) as Ticket);
 
   const open = tickets.filter((t) => isOpen(t.status));
   const byStatus = STATUSES.filter((s) => isOpen(s)).map((s) => ({
@@ -61,7 +64,7 @@ export async function dashboardReport(now: Date) {
   const reopenRate = pct(everResolved.filter((t) => t.reopenCount > 0).length, everResolved.length);
 
   const weekAgo = now.getTime() - 7 * DAY;
-  const staffRows: StaffRow[] = staff.map((s) => {
+  const staffRows: StaffRow[] = staff.map(({ id, name, team, isActive }) => ({ id, name, team: team ?? "", isActive })).map((s) => {
     const mine = tickets.filter((t) => t.assigneeId === s.id);
     const done = mine.filter((t) => t.resolvedAt);
     return {

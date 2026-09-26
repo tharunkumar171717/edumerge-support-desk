@@ -3,7 +3,6 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
-import { sql } from "@/lib/db";
 import type { User } from "@/lib/domain/types";
 import { loadUser } from "@/lib/services/repo";
 
@@ -52,7 +51,7 @@ export async function clearSession(): Promise<void> {
 /** The signed-in user, freshly loaded so role and active flag are never trusted from the cookie. */
 export const currentUser = cache(async (): Promise<User | null> => {
   const id = decodeSession((await cookies()).get(COOKIE)?.value);
-  return id ? loadUser(sql, id) : null;
+  return id ? loadUser(id) : null;
 });
 
 export async function requireUser(): Promise<User> {

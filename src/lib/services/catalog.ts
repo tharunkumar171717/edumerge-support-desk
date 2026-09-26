@@ -1,7 +1,5 @@
-import { sql, type Tx } from "@/lib/db";
-import { Catalog, type CategoryDef, type PriorityDef, type TeamDef } from "@/lib/domain/catalog";
-
-type Q = Tx | typeof sql;
+import { models, type Transaction } from "@/lib/db";
+import { Catalog } from "@/lib/domain/catalog";
 
 // Master data changes rarely, so each server instance reuses it briefly instead of re-reading
 // three tables on every request. Edits made in the database show up within this window.
@@ -9,24 +7,22 @@ const TTL_MS = 60_000;
 let cached: { at: number; catalog: Catalog } | null = null;
 
 /**
- * Teams, priorities and categories from the database. Inside a transaction pass `tx`: the pool
- * has a single connection, so querying through `sql` there would wait on ourselves.
+ * Teams, priorities and categories from the database. Inside a transaction pass it in: the pool
+ * has a single connection, so a query outside the transaction would wait on ourselves.
  */
-export async function getCatalog(q: Q = sql): Promise<Catalog> {
+export async function getCatalog(transaction?: Transaction): Promise<Catalog> {
   if (cached && Date.now() - cached.at < TTL_MS) return cached.catalog;
+  const { TeamModel, PriorityModel, CategoryModel } = models();
   const [teams, priorities, categories] = await Promise.all([
-    q<TeamDef[]>`SELECT code, label, sort_order FROM support_desk.teams ORDER BY sort_order, code`,
-    q<(Omit<PriorityDef, "responseHours" | "resolutionHours"> & { responseHours: string; resolutionHours: string })[]>`
-      SELECT code, label, rank, response_hours, resolution_hours FROM support_desk.priorities ORDER BY rank`,
-    q<CategoryDef[]>`
-      SELECT code, label, team_code AS team, default_priority, sort_order, is_active
-        FROM support_desk.categories ORDER BY sort_order, code`,
+    TeamModel.findAll({ order: [["sortOrder", "ASC"], ["code", "ASC"]], transaction }),
+    PriorityModel.findAll({ order: [["rank", "ASC"]], transaction }),
+    CategoryModel.findAll({ order: [["sortOrder", "ASC"], ["code", "ASC"]], transaction }),
   ]);
   const catalog = new Catalog({
-    teams: [...teams],
-    // numeric columns arrive as strings to avoid float rounding; hours are small, so Number is exact enough.
-    priorities: priorities.map((p) => ({ ...p, responseHours: Number(p.responseHours), resolutionHours: Number(p.resolutionHours) })),
-    categories: [...categories],
+    teams: teams.map((t) => ({ code: t.code, label: t.label, sortOrder: t.sortOrder })),
+    // NUMERIC arrives as a string; SLA hours are small, so Number is exact enough.
+    priorities: priorities.map((p) => ({ code: p.code, label: p.label, rank: p.rank, responseHours: Number(p.responseHours), resolutionHours: Number(p.resolutionHours) })),
+    categories: categories.map((c) => ({ code: c.code, label: c.label, team: c.teamCode, defaultPriority: c.defaultPriority, sortOrder: c.sortOrder, isActive: c.isActive })),
   });
   cached = { at: Date.now(), catalog };
   return catalog;
