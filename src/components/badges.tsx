@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowUp, CheckCircle2, Clock, Flame, PauseCircle, XCircle } from "lucide-react";
-import { CATEGORY_CONFIG, PRIORITY_LABELS, STATUS_LABELS } from "@/lib/domain/config";
-import type { Category, Priority, SlaStateName, Status } from "@/lib/domain/types";
+import { STATUS_LABELS } from "@/lib/domain/config";
+import type { Priority, SlaStateName, Status } from "@/lib/domain/types";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -29,12 +29,13 @@ const PRIORITY_STYLE: Record<Priority, string> = {
   URGENT: "text-red-600 font-semibold",
 };
 
-export function PriorityBadge({ priority }: { priority: Priority }) {
+// Colours are presentation and stay in code; the label comes from the priorities table.
+export function PriorityBadge({ priority, label }: { priority: Priority; label: string }) {
   const Icon = priority === "URGENT" ? Flame : ArrowUp;
   return (
     <span className={cx("inline-flex items-center gap-1 whitespace-nowrap text-xs", PRIORITY_STYLE[priority])}>
       {(priority === "HIGH" || priority === "URGENT") && <Icon className="h-3.5 w-3.5" aria-hidden />}
-      {PRIORITY_LABELS[priority]}
+      {label}
     </span>
   );
 }
@@ -61,8 +62,8 @@ export function SlaChip({ state, title }: { state: SlaStateName; title?: string 
 
 export const slaLabel = (s: SlaStateName) => SLA_STYLE[s].label;
 
-export function CategoryTag({ category }: { category: Category }) {
-  return <span className="whitespace-nowrap text-xs text-slate-600">{CATEGORY_CONFIG[category].label}</span>;
+export function CategoryTag({ label }: { label: string }) {
+  return <span className="whitespace-nowrap text-xs text-slate-600">{label}</span>;
 }
 
 export function EscalationFlag({ level }: { level: number }) {

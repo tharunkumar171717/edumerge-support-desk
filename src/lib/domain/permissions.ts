@@ -1,13 +1,15 @@
-import { isOpen, teamForCategory, TERMINAL_STATUSES } from "./config";
+import type { Catalog } from "./catalog";
+import { isOpen, TERMINAL_STATUSES } from "./config";
 import { forbidden } from "./errors";
 import type { Ticket, User } from "./types";
 
 type T = Pick<Ticket, "studentId" | "assigneeId" | "category" | "status">;
 
-export function canView(user: User, ticket: T): boolean {
+// Staff see and pick up work for their team; which team owns a category is master data.
+export function canView(user: User, ticket: T, catalog: Catalog): boolean {
   if (user.role === "MANAGER") return true;
   if (user.role === "STUDENT") return ticket.studentId === user.id;
-  return ticket.assigneeId === user.id || user.team === teamForCategory(ticket.category);
+  return ticket.assigneeId === user.id || user.team === catalog.teamForCategory(ticket.category);
 }
 
 export function isOwnStudent(user: User, ticket: T): boolean {
@@ -22,13 +24,13 @@ export function canWork(user: User, ticket: T): boolean {
 }
 
 /** Staff may only take unowned work from their own team's queue. */
-export function canPickUp(user: User, ticket: T): boolean {
+export function canPickUp(user: User, ticket: T, catalog: Catalog): boolean {
   return (
     user.role === "STAFF" &&
     user.isActive &&
     ticket.assigneeId === null &&
     (ticket.status === "NEW" || ticket.status === "WAITING_ON_STUDENT") &&
-    user.team === teamForCategory(ticket.category)
+    user.team === catalog.teamForCategory(ticket.category)
   );
 }
 
@@ -66,11 +68,11 @@ export type TicketAction =
   | "reopen";
 
 /** Everything the UI should offer this user on this ticket; each action re-checks on the server. */
-export function availableActions(user: User, ticket: T): Set<TicketAction> {
+export function availableActions(user: User, ticket: T, catalog: Catalog): Set<TicketAction> {
   const a = new Set<TicketAction>();
-  if (!canView(user, ticket)) return a;
+  if (!canView(user, ticket, catalog)) return a;
   const s = ticket.status;
-  if (canPickUp(user, ticket)) a.add("pick_up");
+  if (canPickUp(user, ticket, catalog)) a.add("pick_up");
   if (canAssign(user, ticket)) a.add("assign");
   if (canWork(user, ticket) && isOpen(s)) {
     if (s === "ASSIGNED") a.add("start");
@@ -88,6 +90,6 @@ export function availableActions(user: User, ticket: T): Set<TicketAction> {
   return a;
 }
 
-export function requireView(user: User, ticket: T): void {
-  if (!canView(user, ticket)) throw forbidden("You can't view this ticket.");
+export function requireView(user: User, ticket: T, catalog: Catalog): void {
+  if (!canView(user, ticket, catalog)) throw forbidden("You can't view this ticket.");
 }

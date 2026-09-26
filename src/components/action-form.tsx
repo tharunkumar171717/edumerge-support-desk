@@ -2,25 +2,26 @@
 
 import { Loader2, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { createContext, useActionState, useContext, useState } from "react";
-import { useFormStatus } from "react-dom";
-import { ticketAction, type FormState } from "@/app/actions";
+import { createContext, useContext, useState, useTransition } from "react";
+import { api, formJson } from "@/lib/api/client";
+
+export type Feedback = { error?: string; ok?: string; stale?: boolean } | null;
 
 // Feedback lives above the forms: a successful action often removes its own button
 // (e.g. "Start work"), which would otherwise unmount the success message with it.
-const FeedbackCtx = createContext<(s: FormState) => void>(() => {});
+const FeedbackCtx = createContext<(s: Feedback) => void>(() => {});
+const PendingCtx = createContext(false);
 
 export function FeedbackProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<FormState>(null);
+  const [state, setState] = useState<Feedback>(null);
   const router = useRouter();
-  const isStale = state?.error?.includes("updated by someone else");
   return (
     <FeedbackCtx.Provider value={setState}>
       <div aria-live="polite">
         {state?.error && (
           <p role="alert" className="mb-3 flex flex-wrap items-center gap-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
             {state.error}
-            {isStale && (
+            {state.stale && (
               <button
                 type="button"
                 onClick={() => {
@@ -41,8 +42,9 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Submit button that spins while its surrounding ActionForm (or PendingProvider) is busy. */
 export function Submit({ children, className = "btn-primary" }: { children: React.ReactNode; className?: string }) {
-  const { pending } = useFormStatus();
+  const pending = useContext(PendingCtx);
   return (
     <button className={className} disabled={pending}>
       {pending && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -51,7 +53,12 @@ export function Submit({ children, className = "btn-primary" }: { children: Reac
   );
 }
 
-/** One ticket action. Carries the version it was rendered with so concurrent edits are caught. */
+export const PendingProvider = PendingCtx.Provider;
+
+/**
+ * One ticket action, sent as PATCH /api/tickets/:id. Carries the version it was rendered with
+ * so concurrent edits are caught, then refreshes the server-rendered page on success.
+ */
 export function ActionForm({
   ticketId,
   version,
@@ -66,17 +73,31 @@ export function ActionForm({
   className?: string;
 }) {
   const report = useContext(FeedbackCtx);
-  const [, action] = useActionState<FormState, FormData>(async (prev, data) => {
-    const result = await ticketAction(prev, data);
-    report(result);
-    return result;
-  }, null);
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
   return (
-    <form action={action} className={className}>
-      <input type="hidden" name="ticketId" value={ticketId} />
-      <input type="hidden" name="version" value={version} />
-      <input type="hidden" name="intent" value={intent} />
-      {children}
+    <form
+      className={className}
+      onSubmit={(e) => {
+        e.preventDefault();
+        const form = e.currentTarget;
+        const fields = formJson(form);
+        startTransition(async () => {
+          const res = await api<{ message: string }>(`/api/tickets/${ticketId}`, {
+            method: "PATCH",
+            body: { ...fields, action: intent, version },
+          });
+          if (!res.ok) {
+            report({ error: res.message, stale: res.code === "STALE_VERSION" });
+            return;
+          }
+          report({ ok: res.data.message });
+          form.reset();
+          router.refresh();
+        });
+      }}
+    >
+      <PendingCtx.Provider value={pending}>{children}</PendingCtx.Provider>
     </form>
   );
 }

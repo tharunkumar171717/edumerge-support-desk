@@ -5,8 +5,6 @@ import type { TicketAction } from "@/lib/domain/permissions";
 import type { Priority } from "@/lib/domain/types";
 import { ActionForm, Submit } from "./action-form";
 
-const PRIORITY_OPTIONS: [Priority, string][] = [["LOW", "Low"], ["MEDIUM", "Medium"], ["HIGH", "High"], ["URGENT", "Urgent"]];
-
 function Disclosure({ title, children, tone = "default" }: { title: string; children: React.ReactNode; tone?: "default" | "danger" }) {
   return (
     <details className="group rounded-md border border-slate-200">
@@ -23,6 +21,7 @@ export function ActionPanel({
   version,
   actions,
   priority,
+  priorities,
   staff,
   assigneeId,
 }: {
@@ -30,7 +29,8 @@ export function ActionPanel({
   version: number;
   actions: TicketAction[];
   priority: Priority;
-  staff: { id: number; name: string; team: string }[];
+  priorities: { code: Priority; label: string }[]; // from master data, least urgent first
+  staff: { id: number; name: string; teamLabel: string }[];
   assigneeId: number | null;
 }) {
   const has = (a: TicketAction) => actions.includes(a);
@@ -76,7 +76,7 @@ export function ActionPanel({
           <ActionForm {...f} intent="assign">
             <select name="assigneeId" required className="input" defaultValue="">
               <option value="" disabled>Choose active staff</option>
-              {staff.filter((s) => s.id !== assigneeId).map((s) => <option key={s.id} value={s.id}>{s.name} · {s.team}</option>)}
+              {staff.filter((s) => s.id !== assigneeId).map((s) => <option key={s.id} value={s.id}>{s.name} · {s.teamLabel}</option>)}
             </select>
             <Submit>Assign</Submit>
           </ActionForm>
@@ -86,7 +86,7 @@ export function ActionPanel({
         <Disclosure title="Change priority">
           <ActionForm {...f} intent="priority">
             <select name="priority" className="input" defaultValue={priority}>
-              {PRIORITY_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              {priorities.map((p) => <option key={p.code} value={p.code}>{p.label}</option>)}
             </select>
             <input name="body" required className="input" placeholder="Reason (required, shown in the timeline)" />
             <p className="text-xs text-slate-500">Both SLA due dates are recalculated from their start times.</p>

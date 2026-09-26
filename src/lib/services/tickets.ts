@@ -15,8 +15,7 @@ async function requireActor(q: Tx | typeof sql, actorId: number): Promise<User> 
 /** Lock the row, re-check everything against the fresh copy, and write ticket + audit + notifications atomically. */
 async function run(actorId: number, ticketId: number, apply: (t: Ticket, ctx: Ctx) => Outcome): Promise<Outcome> {
   return sql.begin(async (tx) => {
-    const actor = await requireActor(tx, actorId);
-    const ticket = await lockTicket(tx, ticketId);
+    const [actor, ticket] = await Promise.all([requireActor(tx, actorId), lockTicket(tx, ticketId)]);
     const ctx = await loadCtx(tx, actor, now());
     const outcome = apply(ticket, ctx);
     await saveOutcome(tx, ticket, outcome);

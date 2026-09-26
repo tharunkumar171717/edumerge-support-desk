@@ -1,14 +1,15 @@
-import { Hand, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { quickPickUp } from "@/app/actions";
 import { KpiTiles } from "@/components/kpi-tiles";
+import { PickUpButton } from "@/components/pick-up-button";
 import { EmptyState, TicketList } from "@/components/ticket-list";
 import { now as clockNow } from "@/lib/clock";
-import { isOpen, teamForCategory, TEAM_LABELS } from "@/lib/domain/config";
+import { isOpen } from "@/lib/domain/config";
 import { worstSlaState } from "@/lib/domain/sla";
 import type { User } from "@/lib/domain/types";
 import { currentUser, requireUser } from "@/lib/session";
+import { getCatalog } from "@/lib/services/catalog";
 import { listVisibleTickets, slaUrgency, type TicketRow } from "@/lib/services/queries";
 import { dashboardReport } from "@/lib/services/reports";
 import { maybeRunSweep } from "@/lib/services/sweep";
@@ -41,7 +42,7 @@ export default async function MyWorkPage({ searchParams }: PageProps<"/">) {
     <div className="space-y-8">
       {typeof error === "string" && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
       {user.role === "STUDENT" && <StudentWork rows={rows} now={now} user={user} />}
-      {user.role === "STAFF" && <StaffWork rows={rows} now={now} user={user} />}
+      {user.role === "STAFF" && <StaffWork rows={rows} now={now} user={user} teamLabel={(await getCatalog()).teamLabel(user.team)} />}
       {user.role === "MANAGER" && <ManagerWork rows={rows} now={now} />}
     </div>
   );
@@ -75,27 +76,17 @@ function StudentWork({ rows, now, user }: { rows: TicketRow[]; now: Date; user: 
   );
 }
 
-function PickUpButton({ t }: { t: TicketRow }) {
-  return (
-    <form action={quickPickUp}>
-      <input type="hidden" name="ticketId" value={t.id} />
-      <input type="hidden" name="version" value={t.version} />
-      <button className="btn-secondary py-1 text-xs"><Hand className="h-3.5 w-3.5" /> Pick up</button>
-    </form>
-  );
-}
-
-function StaffWork({ rows, now, user }: { rows: TicketRow[]; now: Date; user: User }) {
+function StaffWork({ rows, now, user, teamLabel }: { rows: TicketRow[]; now: Date; user: User; teamLabel: string }) {
   const mine = rows.filter((t) => t.assigneeId === user.id && isOpen(t.status)).sort((a, b) => slaUrgency(a, now) - slaUrgency(b, now));
   const hot = mine.filter((t) => ["breached", "at_risk"].includes(worstSlaState(t, now)));
   const queue = rows
-    .filter((t) => t.assigneeId === null && isOpen(t.status) && user.team === teamForCategory(t.category))
+    .filter((t) => t.assigneeId === null && isOpen(t.status) && t.team === user.team)
     .sort((a, b) => slaUrgency(a, now) - slaUrgency(b, now));
   return (
     <>
       <div>
         <h1 className="text-xl font-semibold text-slate-900">My work</h1>
-        <p className="text-sm text-slate-600">{user.team ? TEAM_LABELS[user.team] : ""} · {mine.length} open ticket(s) assigned to you</p>
+        <p className="text-sm text-slate-600">{teamLabel} · {mine.length} open ticket(s) assigned to you</p>
       </div>
       <Section title="Overdue / at risk" count={hot.length} hint="Act on these first.">
         {hot.length ? <TicketList rows={hot} now={now} showAssignee={false} /> : <EmptyState title="Nothing overdue or at risk. Nice." />}
@@ -105,7 +96,7 @@ function StaffWork({ rows, now, user }: { rows: TicketRow[]; now: Date; user: Us
       </Section>
       <Section title="Unassigned in my team" count={queue.length}>
         {queue.length ? (
-          user.isActive ? <TicketList rows={queue} now={now} showAssignee={false} action={(t) => <PickUpButton t={t} />} /> : <TicketList rows={queue} now={now} showAssignee={false} />
+          user.isActive ? <TicketList rows={queue} now={now} showAssignee={false} action={(t) => <PickUpButton ticketId={t.id} version={t.version} />} /> : <TicketList rows={queue} now={now} showAssignee={false} />
         ) : (
           <EmptyState title="Your team's queue is empty." />
         )}

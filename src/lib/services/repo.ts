@@ -4,6 +4,7 @@ import type { Ctx, Outcome } from "@/lib/domain/draft";
 import { notFound, stale } from "@/lib/domain/errors";
 import type { Ticket, User } from "@/lib/domain/types";
 import type { Tx } from "@/lib/db";
+import { getCatalog } from "./catalog";
 
 type Q = Tx | typeof import("@/lib/db").sql;
 
@@ -32,10 +33,13 @@ export async function loadStaffLoads(q: Q): Promise<StaffLoad[]> {
 }
 
 export async function loadCtx(q: Q, actor: User | null, now: Date): Promise<Ctx> {
-  const staff = await loadStaffLoads(q);
-  const managers = await q<{ id: number }[]>`
-    SELECT id FROM support_desk.users WHERE role = 'MANAGER' AND is_active`;
-  return { actor, now, staff, managerIds: managers.map((m) => m.id) };
+  // Independent reads are sent together; postgres.js pipelines them on the single connection.
+  const [staff, managers, catalog] = await Promise.all([
+    loadStaffLoads(q),
+    q<{ id: number }[]>`SELECT id FROM support_desk.users WHERE role = 'MANAGER' AND is_active`,
+    getCatalog(q),
+  ]);
+  return { actor, now, staff, managerIds: managers.map((m) => m.id), catalog };
 }
 
 const MUTABLE: (keyof Ticket)[] = [
@@ -45,16 +49,18 @@ const MUTABLE: (keyof Ticket)[] = [
 ];
 
 async function writeChildren(tx: Tx, ticketId: number, o: Outcome) {
+  const writes: PromiseLike<unknown>[] = [];
   if (o.events.length) {
-    await tx`INSERT INTO support_desk.ticket_events ${tx(o.events.map((e) => ({ ...e, ticketId })))}`;
+    writes.push(tx`INSERT INTO support_desk.ticket_events ${tx(o.events.map((e) => ({ ...e, ticketId })))}`);
   }
   if (o.comments.length) {
-    await tx`INSERT INTO support_desk.comments ${tx(o.comments.map((c) => ({ ...c, ticketId })))}`;
+    writes.push(tx`INSERT INTO support_desk.comments ${tx(o.comments.map((c) => ({ ...c, ticketId })))}`);
   }
   if (o.notifications.length) {
     const rows = o.notifications.map((n) => ({ ...n, ticketId, createdAt: o.ticket.updatedAt }));
-    await tx`INSERT INTO support_desk.notifications ${tx(rows)}`;
+    writes.push(tx`INSERT INTO support_desk.notifications ${tx(rows)}`);
   }
+  await Promise.all(writes);
 }
 
 /** Persist an action's outcome; the version guard is a second line of defence behind FOR UPDATE. */

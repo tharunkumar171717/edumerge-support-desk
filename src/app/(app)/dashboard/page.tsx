@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { BarList, TrendChart } from "@/components/charts";
 import { KpiTiles } from "@/components/kpi-tiles";
 import { now as clockNow } from "@/lib/clock";
-import { TEAM_LABELS } from "@/lib/domain/config";
 import { requireUser } from "@/lib/session";
 import { dashboardReport } from "@/lib/services/reports";
 import { maybeRunSweep } from "@/lib/services/sweep";
@@ -64,7 +63,7 @@ export default async function DashboardPage() {
                   <Link href={`/tickets?assignee=${s.id}&status=OPEN`} className="font-medium text-slate-900 hover:text-indigo-700">{s.name}</Link>
                   {!s.isActive && <span className="ml-2 rounded bg-slate-100 px-1.5 text-xs text-slate-500">inactive</span>}
                 </td>
-                <td className="px-4 py-2 text-slate-600">{TEAM_LABELS[s.team as keyof typeof TEAM_LABELS]}</td>
+                <td className="px-4 py-2 text-slate-600">{s.teamLabel}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{s.open}</td>
                 <td className={`px-4 py-2 text-right tabular-nums ${s.breached ? "font-semibold text-red-600" : ""}`}>{s.breached}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{s.resolved7d}</td>

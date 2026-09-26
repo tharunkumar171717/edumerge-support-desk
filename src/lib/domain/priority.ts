@@ -1,13 +1,6 @@
-import { CAMPUS_TIMEZONE, CATEGORY_CONFIG, URGENT_NEED_WINDOW_DAYS } from "./config";
-import { PRIORITIES, type Category, type Priority } from "./types";
-
-export function priorityRank(p: Priority): number {
-  return PRIORITIES.indexOf(p);
-}
-
-export function maxPriority(a: Priority, b: Priority): Priority {
-  return priorityRank(a) >= priorityRank(b) ? a : b;
-}
+import type { Catalog } from "./catalog";
+import { CAMPUS_TIMEZONE, URGENT_NEED_WINDOW_DAYS } from "./config";
+import type { Category, Priority } from "./types";
 
 /** Calendar date (YYYY-MM-DD) on campus for an instant. */
 export function campusDate(now: Date): string {
@@ -24,8 +17,8 @@ export function daysUntil(date: string, now: Date): number {
  * Students never pick priority (everyone would pick Urgent). It comes from the category,
  * and a genuine near deadline raises it to at least High.
  */
-export function initialPriority(category: Category, neededBy: string | null, now: Date): Priority {
-  const base = CATEGORY_CONFIG[category].priority;
-  if (neededBy && daysUntil(neededBy, now) <= URGENT_NEED_WINDOW_DAYS) return maxPriority(base, "HIGH");
+export function initialPriority(catalog: Catalog, category: Category, neededBy: string | null, now: Date): Priority {
+  const base = catalog.category(category).defaultPriority;
+  if (neededBy && daysUntil(neededBy, now) <= URGENT_NEED_WINDOW_DAYS) return catalog.maxPriority(base, "HIGH");
   return base;
 }

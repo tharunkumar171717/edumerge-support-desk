@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { initialPriority } from "@/lib/domain/priority";
 import { pause, resolutionClock, responseClock, resume, worstSlaState } from "@/lib/domain/sla";
 import { changePriority, requestInfo, addComment } from "@/lib/domain/workflow";
-import { accounts1, ctx, hours, makeTicket, student, T0 } from "./fixtures";
+import { accounts1, catalog, ctx, hours, makeTicket, student, T0 } from "./fixtures";
 
 describe("SLA clocks (MEDIUM = 8h response / 72h resolution)", () => {
   const t = makeTicket();
@@ -65,17 +65,17 @@ describe("SLA clocks (MEDIUM = 8h response / 72h resolution)", () => {
 
 describe("priority rule", () => {
   it("uses the category default", () => {
-    expect(initialPriority("ID_CARD", null, T0)).toBe("LOW");
-    expect(initialPriority("CERTIFICATES", null, T0)).toBe("HIGH");
+    expect(initialPriority(catalog, "ID_CARD", null, T0)).toBe("LOW");
+    expect(initialPriority(catalog, "CERTIFICATES", null, T0)).toBe("HIGH");
   });
 
   it("'needed by' within 2 days raises priority to at least High", () => {
-    expect(initialPriority("ID_CARD", "2026-09-22", T0)).toBe("HIGH");
-    expect(initialPriority("FEES", "2026-09-20", T0)).toBe("HIGH");
-    expect(initialPriority("FEES", "2026-09-23", T0)).toBe("MEDIUM");
+    expect(initialPriority(catalog, "ID_CARD", "2026-09-22", T0)).toBe("HIGH");
+    expect(initialPriority(catalog, "FEES", "2026-09-20", T0)).toBe("HIGH");
+    expect(initialPriority(catalog, "FEES", "2026-09-23", T0)).toBe("MEDIUM");
   });
 
   it("never lowers a higher default", () => {
-    expect(initialPriority("CERTIFICATES", "2026-09-21", T0)).toBe("HIGH");
+    expect(initialPriority(catalog, "CERTIFICATES", "2026-09-21", T0)).toBe("HIGH");
   });
 });

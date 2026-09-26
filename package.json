@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "db:setup": "tsx db/setup.ts",
+    "db:migrate": "tsx db/setup.ts --schema-only",
     "db:reset": "tsx db/setup.ts --reset",
     "db:export-sql": "tsx db/export-sql.ts",
     "db:load": "tsx db/setup.ts --reset --from-sql"

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { now as clockNow } from "@/lib/clock";
-import { TEAM_LABELS } from "@/lib/domain/config";
 import { requireUser } from "@/lib/session";
+import { getCatalog } from "@/lib/services/catalog";
 import { dashboardReport } from "@/lib/services/reports";
 import { StaffToggle } from "./staff-toggle";
 
@@ -10,8 +10,7 @@ export const metadata = { title: "Team" };
 export default async function TeamPage() {
   const user = await requireUser();
   if (user.role !== "MANAGER") redirect("/");
-  const { staff } = await dashboardReport(clockNow());
-  const teams = Object.entries(TEAM_LABELS);
+  const [{ staff }, catalog] = await Promise.all([dashboardReport(clockNow()), getCatalog()]);
 
   return (
     <div className="space-y-4">
@@ -22,7 +21,7 @@ export default async function TeamPage() {
         </p>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        {teams.map(([key, label]) => {
+        {catalog.teams.map(({ code: key, label }) => {
           const members = staff.filter((s) => s.team === key);
           const active = members.filter((m) => m.isActive).length;
           return (

@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { markSeenAction } from "@/app/actions";
+import { markSeen } from "@/components/mark-seen";
 import { EmptyState } from "@/components/ticket-list";
 import { ticketCode } from "@/lib/domain/config";
 import { fmtDateTime } from "@/lib/format";
@@ -12,10 +13,11 @@ type Item = { id: number; ticketId: number | null; message: string; isRead: bool
 export function NotificationList({ items }: { items: Item[] }) {
   // Snapshot what was unread on arrival: marking them read refreshes the page, but they stay highlighted this visit.
   const [fresh] = useState(() => new Set(items.filter((n) => !n.isRead).map((n) => n.id)));
+  const router = useRouter();
 
   useEffect(() => {
-    if (fresh.size) markSeenAction().catch(() => {});
-  }, [fresh]);
+    if (fresh.size) markSeen().then((changed) => changed && router.refresh());
+  }, [fresh, router]);
 
   return (
     <div className="space-y-4">

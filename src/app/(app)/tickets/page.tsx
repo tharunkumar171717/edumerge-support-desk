@@ -3,35 +3,20 @@ import Link from "next/link";
 import { slaLabel } from "@/components/badges";
 import { EmptyState, TicketList } from "@/components/ticket-list";
 import { now as clockNow } from "@/lib/clock";
-import { CATEGORY_CONFIG, OPEN_STATUSES, PRIORITY_LABELS, STATUS_LABELS } from "@/lib/domain/config";
-import { CATEGORIES, PRIORITIES, STATUSES, type SlaStateName } from "@/lib/domain/types";
+import { OPEN_STATUSES, STATUS_LABELS } from "@/lib/domain/config";
+import { STATUSES } from "@/lib/domain/types";
 import { requireUser } from "@/lib/session";
+import { getCatalog } from "@/lib/services/catalog";
 import { FilterForm } from "./filter-form";
-import { applyFilters, listAllStaff, listVisibleTickets, type TicketFilters } from "@/lib/services/queries";
+import { applyFilters, listAllStaff, listVisibleTickets, parseTicketFilters, SLA_FILTER_STATES, SORTS } from "@/lib/services/queries";
 
 export const metadata = { title: "Tickets" };
 
-const SLA_STATES: SlaStateName[] = ["breached", "at_risk", "on_track", "paused", "met", "missed"];
-const SORTS = { newest: "Newest", oldest: "Oldest first", sla: "SLA urgency", priority: "Priority", updated: "Recently updated" } as const;
-
-function pick<T extends string>(v: unknown, allowed: readonly T[]): T | undefined {
-  return typeof v === "string" && (allowed as readonly string[]).includes(v) ? (v as T) : undefined;
-}
-
 export default async function TicketsPage({ searchParams }: PageProps<"/tickets">) {
   const user = await requireUser();
-  const sp = await searchParams;
-  const filters: TicketFilters = {
-    q: typeof sp.q === "string" ? sp.q.slice(0, 100) : undefined,
-    status: pick(sp.status, [...STATUSES, "OPEN"] as const),
-    category: pick(sp.category, CATEGORIES),
-    priority: pick(sp.priority, PRIORITIES),
-    assignee: typeof sp.assignee === "string" && /^(none|\d+)$/.test(sp.assignee) ? sp.assignee : undefined,
-    sla: pick(sp.sla, SLA_STATES),
-    sort: pick(sp.sort, Object.keys(SORTS) as (keyof typeof SORTS)[]),
-  };
+  const filters = parseTicketFilters(await searchParams);
   const now = clockNow();
-  const [all, staff] = await Promise.all([listVisibleTickets(user), user.role === "STUDENT" ? [] : listAllStaff()]);
+  const [all, staff, catalog] = await Promise.all([listVisibleTickets(user), user.role === "STUDENT" ? [] : listAllStaff(), getCatalog()]);
   const rows = applyFilters(all, filters, now);
   const filtered = Object.values(filters).some(Boolean);
   const isStudent = user.role === "STUDENT";
@@ -89,10 +74,10 @@ export default async function TicketsPage({ searchParams }: PageProps<"/tickets"
           <input name="q" defaultValue={filters.q} placeholder="Code, subject, student, roll no" className="input pl-8" />
         </label>
         <Select name="status" label="Status" value={filters.status} options={[["OPEN", "All open"], ...STATUSES.map((s) => [s, STATUS_LABELS[s]] as [string, string])]} />
-        <Select name="category" label="Category" value={filters.category} options={CATEGORIES.map((c) => [c, CATEGORY_CONFIG[c].label])} />
-        <Select name="priority" label="Priority" value={filters.priority} options={PRIORITIES.map((p) => [p, PRIORITY_LABELS[p]])} />
+        <Select name="category" label="Category" value={filters.category} options={catalog.categories.map((c) => [c.code, c.label])} />
+        <Select name="priority" label="Priority" value={filters.priority} options={catalog.priorities.map((p) => [p.code, p.label])} />
         {!isStudent && <Select name="assignee" label="Assignee" value={filters.assignee} options={[["none", "Unassigned"], ...staff.map((s) => [String(s.id), s.name] as [string, string])]} />}
-        <Select name="sla" label="SLA" value={filters.sla} options={SLA_STATES.map((s) => [s, slaLabel(s)])} />
+        <Select name="sla" label="SLA" value={filters.sla} options={SLA_FILTER_STATES.map((s) => [s, slaLabel(s)])} />
         <Select name="sort" label="Sort" value={filters.sort} options={Object.entries(SORTS)} placeholder="Newest" />
         <div className="col-span-2 flex gap-2 sm:col-span-4 lg:col-span-8">
           <button className="btn-primary">Search</button>

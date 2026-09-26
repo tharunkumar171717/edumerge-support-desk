@@ -51,14 +51,14 @@ export function TicketList({
               <td className="max-w-md px-3 py-2">
                 <Link href={`/tickets/${t.id}`} className="group block">
                   <span className="flex items-center gap-2 font-mono text-xs text-slate-500">
-                    {ticketCode(t.id)} · <CategoryTag category={t.category} /> {!studentView && <EscalationFlag level={t.escalationLevel} />}
+                    {ticketCode(t.id)} · <CategoryTag label={t.categoryLabel} /> {!studentView && <EscalationFlag level={t.escalationLevel} />}
                   </span>
                   <span className="block truncate font-medium text-slate-900 group-hover:text-indigo-700">{t.subject}</span>
                   {showStudent && <span className="block text-xs text-slate-500">{t.studentName} · {t.studentRollNo}</span>}
                 </Link>
               </td>
               <td className="px-3 py-2"><StatusBadge status={t.status} /></td>
-              <td className="px-3 py-2"><PriorityBadge priority={t.priority} /></td>
+              <td className="px-3 py-2"><PriorityBadge priority={t.priority} label={t.priorityLabel} /></td>
               <td className="px-3 py-2"><SlaChip state={worstSlaState(t, now)} /></td>
               <td className="whitespace-nowrap px-3 py-2 text-slate-600">{fmtAge(t.createdAt, now)}</td>
               {showAssignee && <td className="whitespace-nowrap px-3 py-2 text-slate-600">{t.assigneeName ?? <span className="text-amber-700">Unassigned</span>}</td>}
@@ -72,12 +72,12 @@ export function TicketList({
           <li key={t.id} className="p-3">
             <Link href={`/tickets/${t.id}`} className="block">
               <div className="flex items-center gap-2 font-mono text-xs text-slate-500">
-                {ticketCode(t.id)} · <CategoryTag category={t.category} /> {!studentView && <EscalationFlag level={t.escalationLevel} />}
+                {ticketCode(t.id)} · <CategoryTag label={t.categoryLabel} /> {!studentView && <EscalationFlag level={t.escalationLevel} />}
               </div>
               <div className="font-medium text-slate-900">{t.subject}</div>
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <StatusBadge status={t.status} />
-                <PriorityBadge priority={t.priority} />
+                <PriorityBadge priority={t.priority} label={t.priorityLabel} />
                 <SlaChip state={worstSlaState(t, now)} />
                 <span className="text-xs text-slate-500">{fmtAge(t.createdAt, now)} old</span>
               </div>

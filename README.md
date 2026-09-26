@@ -45,7 +45,7 @@ No passwords. The login page lists everyone, grouped by role.
 
 ## Tech stack
 
-- **Next.js 16** (App Router, Server Components, Server Actions, TypeScript), deployed on **Vercel** (functions pinned to `syd1`, next to the DB)
+- **Next.js 16** (App Router, Server Components, Route Handlers for a JSON API, TypeScript), deployed on **Vercel** (functions pinned to `syd1`, next to the DB)
 - **Supabase Postgres** via `postgres` (postgres.js): plain SQL, no ORM, all tables in a dedicated `support_desk` schema
 - **Tailwind CSS 4** + `lucide-react`; charts are plain CSS bars
 - **zod** for server-side input validation, **Vitest** for tests, **Playwright** for the end-to-end smoke test and screenshots
@@ -61,6 +61,7 @@ npm run dev                  # http://localhost:3000
 
 | Script | What it does |
 |---|---|
+| `npm run db:migrate` | Applies `db/schema.sql` only (idempotent, keeps all data). Use this after pulling schema changes. |
 | `npm run db:setup` | Idempotent schema, then **replays** ~2 weeks of activity through the real services with a mocked clock. Slow over a far-away pooler (~15 min at ~360 ms/query). |
 | `npm run db:reset` | Drops **only** the `support_desk` schema, then `db:setup`. |
 | `npm run db:load` | Drops `support_desk`, then loads `db/schema.sql` + `db/seed.sql` (timestamps are relative to `now()`, so SLA states stay realistic). |
@@ -68,7 +69,40 @@ npm run dev                  # http://localhost:3000
 
 You can also paste `db/schema.sql` and then `db/seed.sql` into the Supabase SQL editor.
 
-> If the project lives in a cloud-synced folder (OneDrive/iCloud), `next dev` (Turbopack) can hang on file watching. Use `npm run build && npm start`, or clone somewhere unsynced.
+> If the project lives in a cloud-synced folder (OneDrive/iCloud), `next dev` (Turbopack) can hang on file watching or miss newly added routes (they return 404 until you restart it). Use `npm run build && npm start`, or clone somewhere unsynced.
+
+## Master data
+
+Teams, categories (label, owning team, default priority) and priorities (label, rank, SLA response/resolution hours) live in the `support_desk.teams`, `categories` and `priorities` tables, not in code. Add a category or change SLA hours with SQL and it applies within a minute (each server instance caches it for 60 s). New SLA hours apply to clocks started afterwards; existing deadlines never move. Statuses and their transitions stay in code, because they are the workflow.
+
+## API
+
+The UI and any other client use the same JSON API. Auth is the session cookie: call `POST /api/session` first and send the cookie it sets. Bodies can be JSON, form-data or x-www-form-urlencoded.
+
+| Method & path | Body / query | Who |
+|---|---|---|
+| `POST /api/session` | `{ userId }` → sets the cookie | anyone |
+| `DELETE /api/session` | sign out | anyone |
+| `GET /api/master-data` | teams, priorities (SLA hours), categories | signed in |
+| `GET /api/tickets` | `?status=OPEN\|NEW…&category=&priority=&assignee=<id>\|none&sla=&sort=newest\|oldest\|sla\|priority\|updated&q=` | tickets the caller may see |
+| `POST /api/tickets` | `{ category, subject, description, neededBy?, createAnyway? }` → `201 { id }`, or `409 DUPLICATE` with `duplicateOf` | students |
+| `GET /api/tickets/:id` | ticket, comments, events, SLA clocks, `actions` the caller may take | who can view it |
+| `PATCH /api/tickets/:id` (or `POST`) | `{ action, version, … }`, see below | depends on action |
+| `GET /api/notifications` | `{ unread, items }` | signed in |
+| `POST /api/notifications/read` | `{ ticketId? }` → `{ changed }` | signed in |
+| `PATCH /api/staff/:id` (or `POST`) | `{ active: true\|false }`; deactivating re-homes their open tickets | managers |
+| `GET /api/dashboard` | KPIs, breakdowns, trend, staff workload | managers |
+
+Ticket actions (`version` is the ticket's current `version`; an older one returns `409 STALE_VERSION`):
+`pick_up` · `start` · `close` · `assign { assigneeId }` · `request_info { body }` · `resolve { body }` · `comment { body, internal? }` · `reopen { body }` · `cancel { body? }` · `priority { priority, body }`
+
+Errors are always `{ "error": { "code", "message" } }` with 401 (not signed in), 403, 404, 409 (stale version, invalid transition, duplicate), 415, 422 (validation).
+
+```bash
+curl -c jar -H 'Content-Type: application/json' -d '{"userId":8}' http://localhost:3000/api/session
+curl -b jar http://localhost:3000/api/tickets?status=OPEN
+curl -b jar -X PATCH -H 'Content-Type: application/json' -d '{"action":"comment","version":1,"body":"Any update?"}' http://localhost:3000/api/tickets/37
+```
 
 ## Tests
 

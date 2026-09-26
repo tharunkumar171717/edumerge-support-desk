@@ -1,4 +1,4 @@
-import { isOpen, PRIORITY_LABELS } from "./config";
+import { isOpen } from "./config";
 import { Draft, type Ctx, type Outcome } from "./draft";
 import { forbidden, invalid } from "./errors";
 import {
@@ -23,8 +23,9 @@ export interface CreateInput {
 export function createTicket(input: CreateInput, ctx: Ctx): Outcome {
   const actor = ctx.actor;
   if (!actor || actor.role !== "STUDENT") throw forbidden("Only students can raise requests.");
+  if (!ctx.catalog.category(input.category).isActive) throw invalid("That category is no longer available. Choose another.");
   const now = ctx.now;
-  const priority = initialPriority(input.category, input.neededBy, now);
+  const priority = initialPriority(ctx.catalog, input.category, input.neededBy, now);
   const base = { priority, createdAt: now, slaStartAt: now, pausedSeconds: 0 };
   const ticket: Ticket = {
     id: 0,
@@ -42,7 +43,7 @@ export function createTicket(input: CreateInput, ctx: Ctx): Outcome {
     resolvedAt: null,
     closedAt: null,
     slaStartAt: now,
-    ...computeDueDates(base),
+    ...computeDueDates(base, ctx.catalog),
     pausedAt: null,
     pausedSeconds: 0,
     escalationLevel: 0,
@@ -52,14 +53,14 @@ export function createTicket(input: CreateInput, ctx: Ctx): Outcome {
     version: 1,
   };
   const d = new Draft(ticket, ctx);
-  d.event("created", null, PRIORITY_LABELS[priority], input.neededBy ? `Needed by ${input.neededBy}` : null);
+  d.event("created", null, ctx.catalog.priorityLabel(priority), input.neededBy ? `Needed by ${input.neededBy}` : null);
   d.autoAssign();
   return d.done(false);
 }
 
 export function pickUp(t: Ticket, version: number, ctx: Ctx): Outcome {
   const d = new Draft(t, ctx);
-  if (!canPickUp(d.actor, t)) throw forbidden("You can only pick up unassigned tickets from your own team.");
+  if (!canPickUp(d.actor, t, ctx.catalog)) throw forbidden("You can only pick up unassigned tickets from your own team.");
   d.checkVersion(version);
   d.t.assigneeId = d.actor.id;
   if (t.status === "NEW") d.move("ASSIGNED");
@@ -161,9 +162,10 @@ export function changePriority(t: Ticket, version: number, priority: Priority, r
   d.checkVersion(version);
   if (priority === t.priority) throw invalid("That is already the priority.");
   if (!reason.trim()) throw invalid("Give a reason for changing the priority.");
-  d.t.priority = priority;
-  Object.assign(d.t, computeDueDates(d.t));
-  d.event("priority_changed", PRIORITY_LABELS[t.priority], PRIORITY_LABELS[priority], reason.trim());
+  const { catalog } = ctx;
+  d.t.priority = catalog.priority(priority).code;
+  Object.assign(d.t, computeDueDates(d.t, catalog));
+  d.event("priority_changed", catalog.priorityLabel(t.priority), catalog.priorityLabel(priority), reason.trim());
   return d.done();
 }
 
@@ -203,7 +205,7 @@ export function reopen(t: Ticket, version: number, reason: string, ctx: Ctx): Ou
     reminderSentAt: null,
     reopenCount: t.reopenCount + 1,
   });
-  d.t.resolutionDueAt = computeDueDates(d.t).resolutionDueAt;
+  d.t.resolutionDueAt = computeDueDates(d.t, ctx.catalog).resolutionDueAt;
   d.comment(`Reopened: ${reason.trim()}`, false);
   d.event("reopened", null, String(d.t.reopenCount), reason.trim());
   d.notify([t.assigneeId], "A student reopened a ticket you resolved");

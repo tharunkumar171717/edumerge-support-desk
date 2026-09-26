@@ -16,6 +16,8 @@ async function main() {
     }
     await sql.unsafe(readFileSync(join(__dirname, "schema.sql"), "utf8"));
     console.log("Schema support_desk is up to date.");
+    // Migrate only: apply schema.sql (idempotent) and leave existing data alone.
+    if (process.argv.includes("--schema-only")) return;
     if (process.argv.includes("--from-sql")) {
       // Fast path: load the exported snapshot (timestamps are relative to now()).
       await sql.unsafe(readFileSync(join(__dirname, "seed.sql"), "utf8"));

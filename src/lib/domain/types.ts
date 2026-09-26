@@ -15,11 +15,9 @@ export type Status = (typeof STATUSES)[number];
 export const PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
 export type Priority = (typeof PRIORITIES)[number];
 
-export const CATEGORIES = ["FEES", "ATTENDANCE", "ID_CARD", "DOCUMENTS", "CERTIFICATES", "OTHER"] as const;
-export type Category = (typeof CATEGORIES)[number];
-
-export const TEAMS = ["ACCOUNTS", "ACADEMICS", "ADMIN_OFFICE", "EXAMS"] as const;
-export type Team = (typeof TEAMS)[number];
+// Codes from the support_desk.categories / teams tables, so new ones need no code change.
+export type Category = string;
+export type Team = string;
 
 export type SlaStateName = "on_track" | "at_risk" | "breached" | "paused" | "met" | "missed" | "n/a";
 

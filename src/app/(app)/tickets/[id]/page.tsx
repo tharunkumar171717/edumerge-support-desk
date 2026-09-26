@@ -10,11 +10,12 @@ import { MarkSeen } from "@/components/mark-seen";
 import { SlaPanel } from "@/components/sla-panel";
 import { Timeline } from "@/components/timeline";
 import { now as clockNow } from "@/lib/clock";
-import { CATEGORY_CONFIG, TEAM_LABELS, ticketCode } from "@/lib/domain/config";
+import { ticketCode } from "@/lib/domain/config";
 import { DomainError } from "@/lib/domain/errors";
 import { availableActions } from "@/lib/domain/permissions";
 import { fmtAge, fmtDate, fmtDateTime } from "@/lib/format";
 import { requireUser } from "@/lib/session";
+import { getCatalog } from "@/lib/services/catalog";
 import { getTicketDetail, listActiveStaff } from "@/lib/services/queries";
 
 // Shared by generateMetadata and the page so the ticket is loaded once per request.
@@ -44,9 +45,10 @@ export default async function TicketPage({ params, searchParams }: PageProps<"/t
   const { user, detail } = loaded;
   const { ticket: t, comments, events } = detail;
   const now = clockNow();
-  const actions = [...availableActions(user, t)];
+  const catalog = await getCatalog();
+  const actions = [...availableActions(user, t, catalog)];
   const staff = actions.includes("assign") ? await listActiveStaff() : [];
-  const staffOptions = staff.map((s) => ({ ...s, team: TEAM_LABELS[s.team as keyof typeof TEAM_LABELS] }));
+  const priorities = catalog.priorities.map(({ code, label }) => ({ code, label }));
   const { created } = await searchParams;
   const isStudent = user.role === "STUDENT";
 
@@ -58,17 +60,17 @@ export default async function TicketPage({ params, searchParams }: PageProps<"/t
       </Link>
       {created && (
         <p role="status" className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          Request raised as {ticketCode(t.id)}. {t.assigneeName ? `${t.assigneeName} from ${TEAM_LABELS[CATEGORY_CONFIG[t.category].team]} will handle it.` : "It's in the queue and will be picked up soon."}
+          Request raised as {ticketCode(t.id)}. {t.assigneeName ? `${t.assigneeName} from ${t.teamLabel} will handle it.` : "It's in the queue and will be picked up soon."}
         </p>
       )}
       <header className="card">
         <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-slate-500">
-          {ticketCode(t.id)} · <CategoryTag category={t.category} /> {!isStudent && <EscalationFlag level={t.escalationLevel} />}
+          {ticketCode(t.id)} · <CategoryTag label={t.categoryLabel} /> {!isStudent && <EscalationFlag level={t.escalationLevel} />}
         </div>
         <h1 className="mt-1 text-xl font-semibold text-slate-900">{t.subject}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <StatusBadge status={t.status} />
-          <PriorityBadge priority={t.priority} />
+          <PriorityBadge priority={t.priority} label={t.priorityLabel} />
           <span className="text-xs text-slate-500">Opened {fmtAge(t.createdAt, now)} ago</span>
         </div>
       </header>
@@ -117,7 +119,7 @@ export default async function TicketPage({ params, searchParams }: PageProps<"/t
         <aside className="space-y-4">
           <section className="card">
             <h2 className="mb-3 text-sm font-semibold text-slate-900">Actions</h2>
-            <ActionPanel ticketId={t.id} version={t.version} actions={actions} priority={t.priority} staff={staffOptions} assigneeId={t.assigneeId} />
+            <ActionPanel ticketId={t.id} version={t.version} actions={actions} priority={t.priority} priorities={priorities} staff={staff} assigneeId={t.assigneeId} />
           </section>
           <section className="card">
             <h2 className="mb-3 text-sm font-semibold text-slate-900">SLA</h2>
@@ -127,7 +129,7 @@ export default async function TicketPage({ params, searchParams }: PageProps<"/t
             <h2 className="mb-3 text-sm font-semibold text-slate-900">Details</h2>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
               <dt className="text-slate-500">Student</dt><dd className="text-slate-900">{t.studentName} <span className="text-slate-500">{t.studentRollNo}</span></dd>
-              <dt className="text-slate-500">Team</dt><dd className="text-slate-900">{TEAM_LABELS[CATEGORY_CONFIG[t.category].team]}</dd>
+              <dt className="text-slate-500">Team</dt><dd className="text-slate-900">{t.teamLabel}</dd>
               <dt className="text-slate-500">Owner</dt><dd className="text-slate-900">{t.assigneeName ?? <span className="text-amber-700">Unassigned</span>}</dd>
               <dt className="text-slate-500">Raised</dt><dd className="text-slate-900">{fmtDateTime(t.createdAt)}</dd>
               {t.neededBy && (<><dt className="text-slate-500">Needed by</dt><dd className="text-slate-900">{fmtDate(t.neededBy)}</dd></>)}

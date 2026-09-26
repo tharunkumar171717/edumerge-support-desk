@@ -1,5 +1,6 @@
 import { pickAssignee, type StaffLoad } from "./assign";
-import { STATUS_LABELS, teamForCategory, TEAM_LABELS } from "./config";
+import type { Catalog } from "./catalog";
+import { STATUS_LABELS } from "./config";
 import { forbidden, stale } from "./errors";
 import { assertTransition } from "./transitions";
 import type { NewComment, NewNotification, Status, Ticket, TicketEvent, User } from "./types";
@@ -9,6 +10,7 @@ export interface Ctx {
   now: Date;
   staff: StaffLoad[]; // every staff member, active or not, with current open-ticket counts
   managerIds: number[];
+  catalog: Catalog; // master data (teams, categories, priorities) loaded from the database
 }
 
 export type EventDraft = Omit<TicketEvent, "ticketId">;
@@ -86,13 +88,14 @@ export class Draft {
 
   /** Give the ticket to the least-loaded active teammate, or leave it in the queue and alert managers. */
   autoAssign(excludeId?: number) {
-    const team = teamForCategory(this.t.category);
+    const team = this.ctx.catalog.teamForCategory(this.t.category);
+    const teamLabel = this.ctx.catalog.teamLabel(team);
     const pick = pickAssignee(this.ctx.staff, team, excludeId);
     if (!pick) {
       this.t.assigneeId = null;
       if (this.t.status === "RESOLVED") this.move("NEW", "No active staff in team");
-      this.event("queued", null, TEAM_LABELS[team], `No active staff in ${TEAM_LABELS[team]}`);
-      this.notify(this.ctx.managerIds, `No active staff in ${TEAM_LABELS[team]}; ticket is waiting unassigned`);
+      this.event("queued", null, teamLabel, `No active staff in ${teamLabel}`);
+      this.notify(this.ctx.managerIds, `No active staff in ${teamLabel}; ticket is waiting unassigned`);
       return;
     }
     this.t.assigneeId = pick.id;

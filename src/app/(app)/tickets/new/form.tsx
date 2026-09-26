@@ -2,14 +2,17 @@
 
 import { AlertTriangle, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { startTransition, useActionState, useState } from "react";
-import { createTicketAction, type FormState } from "@/app/actions";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { api, formJson } from "@/lib/api/client";
 
 type Cat = { value: string; label: string; hint: string };
+type State = { error?: string; duplicateOf?: { id: number; subject: string } } | null;
 
 export function NewTicketForm({ categories, today }: { categories: Cat[]; today: string }) {
-  const [state, action, pending] = useActionState<FormState, FormData>(createTicketAction, null);
-  const f = state?.fields ?? {};
+  const router = useRouter();
+  const [state, setState] = useState<State>(null);
+  const [pending, startTransition] = useTransition();
   const [category, setCategory] = useState("");
   const hint = categories.find((c) => c.value === category)?.hint;
 
@@ -17,12 +20,21 @@ export function NewTicketForm({ categories, today }: { categories: Cat[]; today:
     <form
       className="card space-y-4"
       noValidate
-      // Submitted manually: React's automatic reset after a form action blanks the <select>
-      // (even when controlled), which broke "create anyway" after the duplicate warning.
       onSubmit={(e) => {
         e.preventDefault();
-        const data = new FormData(e.currentTarget, (e.nativeEvent as SubmitEvent).submitter);
-        startTransition(() => action(data));
+        // The submitter says whether this is "create anyway" after the duplicate warning.
+        const body = formJson(e.currentTarget, (e.nativeEvent as SubmitEvent).submitter);
+        startTransition(async () => {
+          const res = await api<{ id: number }>("/api/tickets", { method: "POST", body });
+          if (res.ok) {
+            router.push(`/tickets/${res.data.id}?created=1`);
+            router.refresh();
+          } else if (res.code === "DUPLICATE") {
+            setState({ duplicateOf: res.body?.duplicateOf as { id: number; subject: string } });
+          } else {
+            setState({ error: res.message });
+          }
+        });
       }}
     >
       {state?.error && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>}
@@ -45,15 +57,15 @@ export function NewTicketForm({ categories, today }: { categories: Cat[]; today:
       </div>
       <div>
         <label htmlFor="subject" className="label">Subject</label>
-        <input id="subject" name="subject" required minLength={5} maxLength={120} defaultValue={f.subject} className="input" placeholder="e.g. Fee receipt for Semester 3 not generated" />
+        <input id="subject" name="subject" required minLength={5} maxLength={120} className="input" placeholder="e.g. Fee receipt for Semester 3 not generated" />
       </div>
       <div>
         <label htmlFor="description" className="label">Details</label>
-        <textarea id="description" name="description" required minLength={10} maxLength={2000} rows={5} defaultValue={f.description} className="input" placeholder="What happened, dates, amounts, reference numbers…" />
+        <textarea id="description" name="description" required minLength={10} maxLength={2000} rows={5} className="input" placeholder="What happened, dates, amounts, reference numbers…" />
       </div>
       <div>
         <label htmlFor="neededBy" className="label">Needed by <span className="font-normal text-slate-500">(optional)</span></label>
-        <input id="neededBy" name="neededBy" type="date" min={today} defaultValue={f.neededBy} className="input sm:w-56" />
+        <input id="neededBy" name="neededBy" type="date" min={today} className="input sm:w-56" />
         <p className="mt-1 text-xs text-slate-500">If you need it within 2 days (e.g. a bank or visa deadline), it&apos;s prioritised automatically.</p>
       </div>
       <div className="flex justify-end gap-2">

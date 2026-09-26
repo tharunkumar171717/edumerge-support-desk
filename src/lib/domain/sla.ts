@@ -1,5 +1,6 @@
-import { AT_RISK_THRESHOLD, SLA_HOURS } from "./config";
-import type { Priority, SlaStateName, Ticket } from "./types";
+import type { Catalog } from "./catalog";
+import { AT_RISK_THRESHOLD } from "./config";
+import type { SlaStateName, Ticket } from "./types";
 
 // Two clocks per ticket. First response runs from creation and is never paused.
 // Resolution runs from slaStartAt (creation or last reopen), pauses while waiting on the
@@ -7,20 +8,21 @@ import type { Priority, SlaStateName, Ticket } from "./types";
 
 const HOUR = 3_600_000;
 
-export function windowsMs(priority: Priority): { response: number; resolution: number } {
-  const [r, s] = SLA_HOURS[priority];
-  return { response: r * HOUR, resolution: s * HOUR };
-}
-
 type DueFields = Pick<Ticket, "priority" | "createdAt" | "slaStartAt" | "pausedSeconds">;
 
-export function computeDueDates(t: DueFields): { responseDueAt: Date; resolutionDueAt: Date } {
-  const w = windowsMs(t.priority);
+/** Due dates from the priority's SLA hours (master data). Only called when a clock is (re)started. */
+export function computeDueDates(t: DueFields, catalog: Catalog): { responseDueAt: Date; resolutionDueAt: Date } {
+  const p = catalog.priority(t.priority);
   return {
-    responseDueAt: new Date(t.createdAt.getTime() + w.response),
-    resolutionDueAt: new Date(t.slaStartAt.getTime() + w.resolution + t.pausedSeconds * 1000),
+    responseDueAt: new Date(t.createdAt.getTime() + p.responseHours * HOUR),
+    resolutionDueAt: new Date(t.slaStartAt.getTime() + p.resolutionHours * HOUR + t.pausedSeconds * 1000),
   };
 }
+
+// Window lengths come from the ticket's own due dates, so editing SLA hours in the database
+// applies to new clocks and never silently moves a deadline a ticket already has.
+const responseWindowMs = (t: ClockFields) => t.responseDueAt.getTime() - t.createdAt.getTime();
+const resolutionWindowMs = (t: ClockFields) => t.resolutionDueAt.getTime() - t.slaStartAt.getTime() - t.pausedSeconds * 1000;
 
 type PauseFields = Pick<Ticket, "pausedAt" | "pausedSeconds" | "resolutionDueAt">;
 
@@ -49,7 +51,7 @@ export interface SlaClock {
 
 function openClock(due: Date, windowMs: number, now: Date): SlaClock {
   const remainingMs = due.getTime() - now.getTime();
-  const usedRatio = 1 - remainingMs / windowMs;
+  const usedRatio = windowMs > 0 ? 1 - remainingMs / windowMs : 1;
   let state: SlaStateName = "on_track";
   if (remainingMs < 0) state = "breached";
   else if (remainingMs < windowMs * AT_RISK_THRESHOLD) state = "at_risk";
@@ -58,7 +60,8 @@ function openClock(due: Date, windowMs: number, now: Date): SlaClock {
 
 type ClockFields = Pick<
   Ticket,
-  "priority" | "status" | "firstResponseAt" | "responseDueAt" | "resolvedAt" | "resolutionDueAt" | "pausedAt"
+  | "status" | "createdAt" | "firstResponseAt" | "responseDueAt" | "resolvedAt"
+  | "slaStartAt" | "resolutionDueAt" | "pausedAt" | "pausedSeconds"
 >;
 
 export function responseClock(t: ClockFields, now: Date): SlaClock {
@@ -69,7 +72,7 @@ export function responseClock(t: ClockFields, now: Date): SlaClock {
   if (t.status === "CANCELLED" || t.status === "CLOSED") {
     return { state: "n/a", due, remainingMs: null, usedRatio: null };
   }
-  return openClock(due, windowsMs(t.priority).response, now);
+  return openClock(due, responseWindowMs(t), now);
 }
 
 export function resolutionClock(t: ClockFields, now: Date): SlaClock {
@@ -78,12 +81,12 @@ export function resolutionClock(t: ClockFields, now: Date): SlaClock {
     const state = t.resolvedAt <= t.resolutionDueAt ? "met" : "missed";
     return { state, due: t.resolutionDueAt, remainingMs: null, usedRatio: null };
   }
-  const windowMs = windowsMs(t.priority).resolution;
+  const windowMs = resolutionWindowMs(t);
   if (t.pausedAt) {
     // Frozen at the moment of pausing; the live due date keeps sliding while paused.
     const remainingMs = t.resolutionDueAt.getTime() - t.pausedAt.getTime();
     const due = new Date(t.resolutionDueAt.getTime() + (now.getTime() - t.pausedAt.getTime()));
-    return { state: "paused", due, remainingMs, usedRatio: 1 - remainingMs / windowMs };
+    return { state: "paused", due, remainingMs, usedRatio: windowMs > 0 ? 1 - remainingMs / windowMs : 1 };
   }
   return openClock(t.resolutionDueAt, windowMs, now);
 }

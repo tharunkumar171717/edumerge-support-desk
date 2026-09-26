@@ -1,8 +1,9 @@
 import { sql } from "@/lib/db";
-import { CATEGORY_CONFIG, isOpen, STATUS_LABELS } from "@/lib/domain/config";
+import { isOpen, STATUS_LABELS } from "@/lib/domain/config";
 import { campusDate } from "@/lib/domain/priority";
 import { isBreached, resolutionClock, responseClock } from "@/lib/domain/sla";
-import { CATEGORIES, STATUSES, type Ticket } from "@/lib/domain/types";
+import { STATUSES, type Ticket } from "@/lib/domain/types";
+import { getCatalog } from "./catalog";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -10,16 +11,19 @@ const DAY = 24 * HOUR;
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 const pct = (num: number, den: number) => (den ? Math.round((num / den) * 100) : null);
 
-export interface StaffRow { id: number; name: string; team: string; isActive: boolean; open: number; breached: number; resolved7d: number; avgResolutionHours: number | null }
+export interface StaffRow { id: number; name: string; team: string; teamLabel: string; isActive: boolean; open: number; breached: number; resolved7d: number; avgResolutionHours: number | null }
 
 /** Management view computed from live ticket state, so it always agrees with what staff see. */
 export async function dashboardReport(now: Date) {
-  const tickets = await sql<Ticket[]>`SELECT * FROM support_desk.tickets`;
-  const staff = await sql<{ id: number; name: string; team: string; isActive: boolean }[]>`
-    SELECT id, name, team, is_active FROM support_desk.users WHERE role = 'STAFF' ORDER BY team, name`;
-  const resolvedEvents = await sql<{ createdAt: Date }[]>`
-    SELECT created_at FROM support_desk.ticket_events
-     WHERE kind = 'status_changed' AND to_value = 'Resolved' AND created_at > ${new Date(now.getTime() - 15 * DAY)}`;
+  const [catalog, tickets, staff, resolvedEvents] = await Promise.all([
+    getCatalog(),
+    sql<Ticket[]>`SELECT * FROM support_desk.tickets`,
+    sql<{ id: number; name: string; team: string; isActive: boolean }[]>`
+      SELECT id, name, team, is_active FROM support_desk.users WHERE role = 'STAFF' ORDER BY team, name`,
+    sql<{ createdAt: Date }[]>`
+      SELECT created_at FROM support_desk.ticket_events
+       WHERE kind = 'status_changed' AND to_value = 'Resolved' AND created_at > ${new Date(now.getTime() - 15 * DAY)}`,
+  ]);
 
   const open = tickets.filter((t) => isOpen(t.status));
   const byStatus = STATUSES.filter((s) => isOpen(s)).map((s) => ({
@@ -27,11 +31,10 @@ export async function dashboardReport(now: Date) {
     key: s,
     value: open.filter((t) => t.status === s).length,
   }));
-  const byCategory = CATEGORIES.map((c) => ({
-    label: CATEGORY_CONFIG[c].label,
-    key: c,
-    value: open.filter((t) => t.category === c).length,
-  }));
+  const byCategory = catalog.categories
+    .map((c) => ({ label: c.label, key: c.code, value: open.filter((t) => t.category === c.code).length }))
+    // A retired category only shows while it still has open work.
+    .filter((row, i) => catalog.categories[i].isActive || row.value > 0);
 
   const age = (t: Ticket) => now.getTime() - t.createdAt.getTime();
   const ageBuckets = [
@@ -63,6 +66,7 @@ export async function dashboardReport(now: Date) {
     const done = mine.filter((t) => t.resolvedAt);
     return {
       ...s,
+      teamLabel: catalog.teamLabel(s.team),
       open: mine.filter((t) => isOpen(t.status)).length,
       breached: mine.filter((t) => isOpen(t.status) && isBreached(t, now)).length,
       resolved7d: done.filter((t) => t.resolvedAt!.getTime() > weekAgo).length,
