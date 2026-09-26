@@ -11,6 +11,9 @@ export const getNotifications: Controller = async (ctx) => {
   return Response.json({ unread, items });
 };
 
+/** GET /api/notifications/unread: just the unread count, for the nav badge. */
+export const getUnreadCount: Controller = async (ctx) => Response.json({ unread: await unreadCount(userOf(ctx).id) });
+
 /** POST /api/notifications/read { ticketId? }: mark all, or one ticket's, notifications read. */
 export const markRead: Controller = async (ctx) => {
   const { ticketId } = ctx.body as MarkReadBody;

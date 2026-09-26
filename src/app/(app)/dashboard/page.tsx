@@ -1,19 +1,14 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { BarList, TrendChart } from "@/components/charts";
 import { KpiTiles } from "@/components/kpi-tiles";
-import { now as clockNow } from "@/lib/clock";
-import { requireUser } from "@/lib/session";
-import { dashboardReport } from "@/lib/services/reports";
-import { maybeRunSweep } from "@/lib/services/sweep";
+import { apiGet } from "@/lib/server-api";
+import type { DashboardReport } from "@/lib/services/reports";
 
 export const metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
-  const user = await requireUser();
-  if (user.role !== "MANAGER") redirect("/");
-  await maybeRunSweep();
-  const r = await dashboardReport(clockNow());
+  // Managers only: the API answers 403 for anyone else, which sends them home.
+  const r = await apiGet<DashboardReport>("/api/dashboard");
 
   return (
     <div className="space-y-6">

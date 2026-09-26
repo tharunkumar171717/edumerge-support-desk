@@ -1,11 +1,9 @@
 import { Nav } from "@/components/nav";
-import { requireUser } from "@/lib/session";
-import { getCatalog } from "@/lib/services/catalog";
-import { unreadCount } from "@/lib/services/queries";
+import { apiGet, fetchCatalog, fetchCurrentUser } from "@/lib/server-api";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
-  const user = await requireUser();
-  const [unread, catalog] = await Promise.all([unreadCount(user.id), getCatalog()]);
+  const user = await fetchCurrentUser();
+  const [{ unread }, catalog] = await Promise.all([apiGet<{ unread: number }>("/api/notifications/unread"), fetchCatalog()]);
   return (
     <>
       <Nav user={user} unread={unread} teamLabel={catalog.teamLabel(user.team)} />

@@ -3,34 +3,43 @@ import Link from "next/link";
 import { slaLabel } from "@/components/badges";
 import { EmptyState, TicketList } from "@/components/ticket-list";
 import { now as clockNow } from "@/lib/clock";
-import { OPEN_STATUSES, STATUS_LABELS } from "@/lib/domain/config";
+import { STATUS_LABELS } from "@/lib/domain/config";
 import { STATUSES } from "@/lib/domain/types";
-import { requireUser } from "@/lib/session";
-import { getCatalog } from "@/lib/services/catalog";
+import { apiGet, fetchCatalog, fetchCurrentUser } from "@/lib/server-api";
 import { FilterForm } from "./filter-form";
-import { applyFilters, listAllStaff, listVisibleTickets, parseTicketFilters, SLA_FILTER_STATES, SORTS } from "@/lib/services/queries";
+import { parseTicketFilters, SLA_FILTER_STATES, SORTS, type TicketFilters, type TicketRow } from "@/lib/services/queries";
 
 export const metadata = { title: "Tickets" };
 
+type TicketListResponse = { tickets: TicketRow[]; total: number; counts: { all: number; open: number; byStatus: Record<string, number> } };
+
+/** The filters as a query string, optionally with a different status. */
+function filterQuery(filters: TicketFilters, status: string | undefined): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) if (v && k !== "status") p.set(k, String(v));
+  if (status) p.set("status", status);
+  return p.toString();
+}
+
 export default async function TicketsPage({ searchParams }: PageProps<"/tickets">) {
-  const user = await requireUser();
+  const user = await fetchCurrentUser();
   const filters = parseTicketFilters(await searchParams);
   const now = clockNow();
-  const [all, staff, catalog] = await Promise.all([listVisibleTickets(user), user.role === "STUDENT" ? [] : listAllStaff(), getCatalog()]);
-  const rows = applyFilters(all, filters, now);
-  const filtered = Object.values(filters).some(Boolean);
   const isStudent = user.role === "STUDENT";
+  const qs = filterQuery(filters, filters.status);
+  const [{ tickets: rows, total, counts }, staff, catalog] = await Promise.all([
+    apiGet<TicketListResponse>(qs ? `/api/tickets?${qs}` : "/api/tickets"),
+    isStudent ? [] : apiGet<{ staff: { id: number; name: string }[] }>("/api/staff").then((r) => r.staff),
+    fetchCatalog(),
+  ]);
+  const filtered = Object.values(filters).some(Boolean);
 
-  // Tab counts respect every other filter, so they always add up to what you'd see.
-  const base = applyFilters(all, { ...filters, status: undefined }, now);
-  const countOf = (s?: string) => (s === "OPEN" ? base.filter((t) => OPEN_STATUSES.includes(t.status)).length : s ? base.filter((t) => t.status === s).length : base.length);
+  // Tab counts (from the API) respect every other filter, so they always add up to what you'd see.
+  const countOf = (s?: string) => (s === "OPEN" ? counts.open : s ? (counts.byStatus[s] ?? 0) : counts.all);
   const tabs: [string | undefined, string][] = [["OPEN", "All open"], ...STATUSES.map((s) => [s, STATUS_LABELS[s]] as [string, string]), [undefined, "Everything"]];
   const tabHref = (status?: string) => {
-    const p = new URLSearchParams();
-    for (const [k, v] of Object.entries(filters)) if (v && k !== "status") p.set(k, String(v));
-    if (status) p.set("status", status);
-    const qs = p.toString();
-    return qs ? `/tickets?${qs}` : "/tickets";
+    const q = filterQuery(filters, status);
+    return q ? `/tickets?${q}` : "/tickets";
   };
 
   return (
@@ -82,13 +91,13 @@ export default async function TicketsPage({ searchParams }: PageProps<"/tickets"
         <div className="col-span-2 flex gap-2 sm:col-span-4 lg:col-span-8">
           <button className="btn-primary">Search</button>
           {filtered && <Link href="/tickets" className="btn-secondary">Clear all</Link>}
-          <span className="ml-auto self-center text-sm text-slate-500">{rows.length} of {all.length}</span>
+          <span className="ml-auto self-center text-sm text-slate-500">{rows.length} of {total}</span>
         </div>
       </FilterForm>
 
       {rows.length ? (
         <TicketList rows={rows} now={now} showStudent={!isStudent} studentView={isStudent} />
-      ) : all.length ? (
+      ) : total ? (
         <EmptyState title="No tickets match these filters." hint="Try clearing a filter." />
       ) : (
         <EmptyState title="No tickets yet." hint={isStudent ? "Raise your first request and track it here." : "New requests from your team's categories will appear here."} />

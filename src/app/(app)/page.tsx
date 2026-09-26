@@ -8,16 +8,14 @@ import { now as clockNow } from "@/lib/clock";
 import { isOpen } from "@/lib/domain/config";
 import { worstSlaState } from "@/lib/domain/sla";
 import type { User } from "@/lib/domain/types";
-import { currentUser, requireUser } from "@/lib/session";
-import { getCatalog } from "@/lib/services/catalog";
-import { listVisibleTickets, slaUrgency, type TicketRow } from "@/lib/services/queries";
-import { dashboardReport } from "@/lib/services/reports";
-import { maybeRunSweep } from "@/lib/services/sweep";
+import { apiGet, fetchCatalog, fetchCurrentUser, serverApi } from "@/lib/server-api";
+import { slaUrgency, type TicketRow } from "@/lib/services/queries";
+import type { DashboardReport } from "@/lib/services/reports";
 
 export async function generateMetadata(): Promise<Metadata> {
   // Matches the nav label each role sees.
-  const user = await currentUser();
-  return { title: user?.role === "STUDENT" ? "My requests" : "My work" };
+  const r = await serverApi<{ user: User }>("/api/session");
+  return { title: r.ok && r.data.user.role === "STUDENT" ? "My requests" : "My work" };
 }
 
 function Section({ title, count, hint, children }: { title: string; count: number; hint?: string; children: React.ReactNode }) {
@@ -33,16 +31,15 @@ function Section({ title, count, hint, children }: { title: string; count: numbe
 }
 
 export default async function MyWorkPage({ searchParams }: PageProps<"/">) {
-  const user = await requireUser();
-  await maybeRunSweep();
+  const user = await fetchCurrentUser();
+  const { tickets: rows } = await apiGet<{ tickets: TicketRow[] }>("/api/tickets");
   const now = clockNow();
-  const rows = await listVisibleTickets(user);
   const { error } = await searchParams;
   return (
     <div className="space-y-8">
       {typeof error === "string" && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
       {user.role === "STUDENT" && <StudentWork rows={rows} now={now} user={user} />}
-      {user.role === "STAFF" && <StaffWork rows={rows} now={now} user={user} teamLabel={(await getCatalog()).teamLabel(user.team)} />}
+      {user.role === "STAFF" && <StaffWork rows={rows} now={now} user={user} teamLabel={(await fetchCatalog()).teamLabel(user.team)} />}
       {user.role === "MANAGER" && <ManagerWork rows={rows} now={now} />}
     </div>
   );
@@ -106,7 +103,7 @@ function StaffWork({ rows, now, user, teamLabel }: { rows: TicketRow[]; now: Dat
 }
 
 async function ManagerWork({ rows, now }: { rows: TicketRow[]; now: Date }) {
-  const report = await dashboardReport(now);
+  const report = await apiGet<DashboardReport>("/api/dashboard");
   const open = rows.filter((t) => isOpen(t.status)).sort((a, b) => slaUrgency(a, now) - slaUrgency(b, now));
   const breached = open.filter((t) => worstSlaState(t, now) === "breached");
   const escalated = open.filter((t) => t.escalationLevel > 0).sort((a, b) => b.escalationLevel - a.escalationLevel);

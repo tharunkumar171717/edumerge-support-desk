@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 import { now } from "@/lib/clock";
 import { campusDate } from "@/lib/domain/priority";
-import { requireUser } from "@/lib/session";
-import { getCatalog } from "@/lib/services/catalog";
+import { fetchCatalog, fetchCurrentUser } from "@/lib/server-api";
 import { NewTicketForm } from "./form";
 
 export const metadata = { title: "Raise a request" };
@@ -10,9 +9,9 @@ export const metadata = { title: "Raise a request" };
 const days = (h: number) => (h % 24 === 0 ? `${h / 24} day${h === 24 ? "" : "s"}` : `${h}h`);
 
 export default async function NewTicketPage() {
-  const user = await requireUser();
+  const user = await fetchCurrentUser();
   if (user.role !== "STUDENT") redirect("/tickets");
-  const catalog = await getCatalog();
+  const catalog = await fetchCatalog();
   const categories = catalog.activeCategories.map((c) => {
     const p = catalog.priority(c.defaultPriority);
     return {

@@ -1,8 +1,6 @@
 import { ArrowLeft, Lock } from "lucide-react";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-import { cache } from "react";
 import { FeedbackProvider } from "@/components/action-form";
 import { ActionPanel, Composer } from "@/components/action-panel";
 import { CategoryTag, EscalationFlag, PriorityBadge, StatusBadge } from "@/components/badges";
@@ -11,43 +9,30 @@ import { SlaPanel } from "@/components/sla-panel";
 import { Timeline } from "@/components/timeline";
 import { now as clockNow } from "@/lib/clock";
 import { ticketCode } from "@/lib/domain/config";
-import { DomainError } from "@/lib/domain/errors";
-import { availableActions } from "@/lib/domain/permissions";
+import type { TicketAction } from "@/lib/domain/permissions";
 import { fmtAge, fmtDate, fmtDateTime } from "@/lib/format";
-import { requireUser } from "@/lib/session";
-import { getCatalog } from "@/lib/services/catalog";
-import { getTicketDetail, listActiveStaff } from "@/lib/services/queries";
+import { apiGet, fetchCatalog, fetchCurrentUser, serverApi } from "@/lib/server-api";
+import type { getTicketDetail, listActiveStaff } from "@/lib/services/queries";
 
-// Shared by generateMetadata and the page so the ticket is loaded once per request.
-const loadTicket = cache(async (rawId: string) => {
-  const user = await requireUser();
-  const id = Number(rawId);
-  if (!Number.isInteger(id) || id <= 0) return null;
-  try {
-    return { user, detail: await getTicketDetail(user, id) };
-  } catch (e) {
-    // Forbidden and missing look the same, so ticket ids can't be probed.
-    if (e instanceof DomainError) return null;
-    throw e;
-  }
-});
+type TicketDetail = Awaited<ReturnType<typeof getTicketDetail>> & { actions: TicketAction[] };
+
+// Missing, forbidden and malformed ids all come back as 404 from the API, so ids can't be probed.
+const ticketPath = (rawId: string) => `/api/tickets/${encodeURIComponent(rawId)}`;
 
 export async function generateMetadata({ params }: PageProps<"/tickets/[id]">): Promise<Metadata> {
-  const loaded = await loadTicket((await params).id);
-  if (!loaded) return { title: "Ticket not found" };
-  const t = loaded.detail.ticket;
+  const r = await serverApi<TicketDetail>(ticketPath((await params).id));
+  if (!r.ok) return { title: "Ticket not found" };
+  const t = r.data.ticket;
   return { title: `${ticketCode(t.id)} · ${t.subject}` };
 }
 
 export default async function TicketPage({ params, searchParams }: PageProps<"/tickets/[id]">) {
-  const loaded = await loadTicket((await params).id);
-  if (!loaded) notFound();
-  const { user, detail } = loaded;
-  const { ticket: t, comments, events } = detail;
+  const [user, detail] = await Promise.all([fetchCurrentUser(), apiGet<TicketDetail>(ticketPath((await params).id))]);
+  const { ticket: t, comments, events, actions } = detail;
   const now = clockNow();
-  const catalog = await getCatalog();
-  const actions = [...availableActions(user, t, catalog)];
-  const staff = actions.includes("assign") ? await listActiveStaff() : [];
+  const catalog = await fetchCatalog();
+  type Staff = Awaited<ReturnType<typeof listActiveStaff>>;
+  const staff = actions.includes("assign") ? (await apiGet<{ staff: Staff }>("/api/staff?active=true")).staff : [];
   const priorities = catalog.priorities.map(({ code, label }) => ({ code, label }));
   const { created } = await searchParams;
   const isStudent = user.role === "STUDENT";

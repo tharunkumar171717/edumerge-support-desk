@@ -1,7 +1,7 @@
 import { GraduationCap, LifeBuoy, ShieldCheck, Users } from "lucide-react";
 import { LoginButton } from "@/components/session-buttons";
 import type { Role, User } from "@/lib/domain/types";
-import { listUsersForLogin } from "@/lib/services/queries";
+import { serverApi } from "@/lib/server-api";
 
 type LoginUser = User & { teamLabel: string | null };
 
@@ -21,14 +21,10 @@ function subtitle(u: LoginUser) {
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { error } = await searchParams;
-  let users: LoginUser[] = [];
-  let loadError = false;
-  try {
-    users = await listUsersForLogin();
-  } catch (e) {
-    console.error(e);
-    loadError = true;
-  }
+  const r = await serverApi<{ users: LoginUser[] }>("/api/session/users");
+  const users = r.ok ? r.data.users : [];
+  const loadError = !r.ok;
+  if (!r.ok) console.error(`Sign-in users failed to load: ${r.status} ${r.code} ${r.message}`);
 
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10">

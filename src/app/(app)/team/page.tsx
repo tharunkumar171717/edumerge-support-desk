@@ -1,16 +1,12 @@
-import { redirect } from "next/navigation";
-import { now as clockNow } from "@/lib/clock";
-import { requireUser } from "@/lib/session";
-import { getCatalog } from "@/lib/services/catalog";
-import { dashboardReport } from "@/lib/services/reports";
+import { apiGet, fetchCatalog } from "@/lib/server-api";
+import type { DashboardReport } from "@/lib/services/reports";
 import { StaffToggle } from "./staff-toggle";
 
 export const metadata = { title: "Team" };
 
 export default async function TeamPage() {
-  const user = await requireUser();
-  if (user.role !== "MANAGER") redirect("/");
-  const [{ staff }, catalog] = await Promise.all([dashboardReport(clockNow()), getCatalog()]);
+  // Managers only: the dashboard API answers 403 for anyone else, which sends them home.
+  const [{ staff }, catalog] = await Promise.all([apiGet<DashboardReport>("/api/dashboard"), fetchCatalog()]);
 
   return (
     <div className="space-y-4">

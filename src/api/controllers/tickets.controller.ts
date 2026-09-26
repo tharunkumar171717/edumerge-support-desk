@@ -1,4 +1,5 @@
 import { now as clockNow } from "@/lib/clock";
+import { isOpen } from "@/lib/domain/config";
 import { DomainError } from "@/lib/domain/errors";
 import { availableActions } from "@/lib/domain/permissions";
 import { resolutionClock, responseClock, worstSlaState } from "@/lib/domain/sla";
@@ -11,14 +12,25 @@ import type { Controller } from "../core/router";
 import { userOf } from "../middlewares/auth.middleware";
 import type { CreateTicketBody, TicketActionBody } from "../validators/tickets.validator";
 
-/** GET /api/tickets?status=&category=&priority=&assignee=&sla=&sort=&q= : tickets the caller may see. */
+/**
+ * GET /api/tickets?status=&category=&priority=&assignee=&sla=&sort=&q= : tickets the caller may see.
+ * `total` is every visible ticket; `counts` applies every filter except status, per status tab.
+ */
 export const listTickets: Controller = async (ctx) => {
   const user = userOf(ctx);
   await maybeRunSweep();
   const now = clockNow();
   const filters = parseTicketFilters(Object.fromEntries(ctx.query));
-  const rows = applyFilters(await listVisibleTickets(user), filters, now);
-  return Response.json({ tickets: rows.map((t) => ({ ...t, slaState: worstSlaState(t, now) })) });
+  const all = await listVisibleTickets(user);
+  const rows = applyFilters(all, filters, now);
+  const base = applyFilters(all, { ...filters, status: undefined }, now);
+  const byStatus: Record<string, number> = {};
+  for (const t of base) byStatus[t.status] = (byStatus[t.status] ?? 0) + 1;
+  return Response.json({
+    tickets: rows.map((t) => ({ ...t, slaState: worstSlaState(t, now) })),
+    total: all.length,
+    counts: { all: base.length, open: base.filter((t) => isOpen(t.status)).length, byStatus },
+  });
 };
 
 /** POST /api/tickets: 201 { id }, or 409 DUPLICATE when the student already has an open ticket in that category. */
