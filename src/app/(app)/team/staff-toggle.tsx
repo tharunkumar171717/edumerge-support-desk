@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { PendingProvider, Submit, type Feedback } from "@/components/action-form";
-import { api } from "@/lib/api/client";
+import { api } from "@/lib/api-client";
 
 export function StaffToggle({ staffId, name, isActive, open }: { staffId: number; name: string; isActive: boolean; open: number }) {
   const router = useRouter();

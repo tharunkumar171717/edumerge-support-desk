@@ -116,14 +116,29 @@ The unit tests cover every allowed transition and a set of illegal ones; permiss
 ## Project structure
 
 ```
-db/                 schema.sql (idempotent) · seed.ts + scenarios.ts (replayed seed) · seed.sql (snapshot) · setup.ts · export-sql.ts
-src/lib/domain/     pure rules, no I/O: types, config, transitions, permissions, sla, priority, assign,
-                    workflow (every action as a pure function), sweep, draft (outcome builder), errors
-src/lib/services/   DB side: tickets (actions, one transaction each), staff, sweep, queries (row-level visibility), reports, repo
-src/lib/            db.ts (single postgres.js client) · clock.ts (injectable now) · session.ts (signed cookie) · format.ts
-src/app/            login · (app)/ My work, tickets, tickets/new, tickets/[id], dashboard, team, notifications · api/cron/sla-sweep
-src/components/     badges, ticket list, SLA panel, timeline, action panel/forms, charts, nav
+db/                 schema.sql (idempotent, incl. master data) · seed.ts + scenarios.ts · seed.sql · setup.ts · export-sql.ts
+src/app/            pages: login · (app)/ My work, tickets, tickets/new, tickets/[id], dashboard, team, notifications
+src/app/api/[...path]/route.ts   the only Next.js API file: hands every /api request to src/api's router
+src/api/            the backend, layered like an Express app
+  routes/           URL + method → middleware chain → controller, one file per resource (index.ts mounts them)
+  middlewares/      authenticate (session cookie), requireRole, validateBody / validateParams (zod), requireCronSecret
+  validators/       zod request schemas per resource
+  controllers/      read the validated request, call a service, shape the JSON response
+  core/             router.ts (tiny Express-style router) · errors.ts (HttpError + the one error → response mapper)
+src/lib/services/   business operations + SQL: tickets (each action in one transaction), staff, sweep,
+                    queries (reads, row-level visibility), reports, catalog (master data), repo (row load/save)
+src/lib/domain/     pure business rules, no I/O: workflow, permissions, transitions, sla, priority, assign, catalog, sweep
+src/lib/            db.ts (postgres.js client) · session.ts (signed cookie) · clock.ts · api-client.ts (browser fetch helper)
+src/components/     UI: badges, ticket list, SLA panel, timeline, action panel/forms, charts, nav
 tests/              Vitest domain tests
 scripts/            e2e-smoke.ts (Playwright)
-docs/               APPROACH.md, AI_USAGE_REPORT.md, ai-log.md, screenshots/, ops/ (optional 15-min sweep workflow)
+docs/               APPROACH.md, AI_USAGE_REPORT.md, ai-log.md, screenshots/, ops/
 ```
+
+A request flows **route → middlewares → controller → service → domain rules → database**, and any error thrown on the way is turned into `{ error: { code, message } }` in one place. For example, `PATCH /api/tickets/12`:
+
+1. `app/api/[...path]/route.ts` passes it to `apiRouter` (`src/api/routes/index.ts`), which matches `tickets.routes.ts → .patch("/:id", …)`.
+2. Middlewares: `authenticate` loads the user from the cookie (401 if none), `validateParams` checks the id, `validateBody(ticketActionSchema)` parses the body (422 on bad input).
+3. `tickets.controller.ts → updateTicket` picks the service call for the `action`.
+4. `services/tickets.ts` opens a transaction, locks the row, and calls the pure rule in `domain/workflow.ts`, which checks permission, version and status transition.
+5. The service saves the ticket, audit events and notifications together; the controller returns `{ message, ticket }`.

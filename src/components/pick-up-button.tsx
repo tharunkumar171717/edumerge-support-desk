@@ -3,7 +3,7 @@
 import { Hand } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
-import { api } from "@/lib/api/client";
+import { api } from "@/lib/api-client";
 
 /** One-click pick up from the team queue; errors surface in the page's alert via ?error=. */
 export function PickUpButton({ ticketId, version }: { ticketId: number; version: number }) {

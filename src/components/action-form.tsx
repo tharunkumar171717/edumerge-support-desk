@@ -3,7 +3,7 @@
 import { Loader2, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createContext, useContext, useState, useTransition } from "react";
-import { api, formJson } from "@/lib/api/client";
+import { api, formJson } from "@/lib/api-client";
 
 export type Feedback = { error?: string; ok?: string; stale?: boolean } | null;
 

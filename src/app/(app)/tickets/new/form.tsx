@@ -4,7 +4,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { api, formJson } from "@/lib/api/client";
+import { api, formJson } from "@/lib/api-client";
 
 type Cat = { value: string; label: string; hint: string };
 type State = { error?: string; duplicateOf?: { id: number; subject: string } } | null;

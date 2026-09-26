@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
-import { api } from "@/lib/api/client";
+import { api } from "@/lib/api-client";
 
 /** Marks notifications read once the page has been shown, then refreshes the bell if anything changed. */
 export function MarkSeen({ ticketId }: { ticketId?: number }) {

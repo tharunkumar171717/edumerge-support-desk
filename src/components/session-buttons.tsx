@@ -3,7 +3,7 @@
 import { LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { api } from "@/lib/api/client";
+import { api } from "@/lib/api-client";
 
 /** Demo sign-in: POST /api/session, then into the app. */
 export function LoginButton({ userId, children }: { userId: number; children: React.ReactNode }) {
